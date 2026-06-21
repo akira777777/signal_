@@ -80,10 +80,10 @@ ATTACHMENT_EXTENSIONS = {
 class PlanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    aliases: list[str] = Field(min_length=1, max_length=100)
-    message: str = Field(default="", max_length=4096)
-    repeat_count: int = Field(default=1, ge=1, le=20)
-    interval_seconds: int = Field(default=0, ge=0, le=86_400)
+    aliases: list[str] = Field(min_length=1, max_length=999999)
+    message: str = Field(default="", max_length=99999999)
+    repeat_count: int = Field(default=1, ge=1, le=999999)
+    interval_seconds: int = Field(default=0, ge=0, le=99999999)
     attachments: list[
         Annotated[str, Field(max_length=MAX_ATTACHMENT_DATA_URL_CHARS)]
     ] = Field(
@@ -94,7 +94,7 @@ class PlanRequest(BaseModel):
 class SendRequest(PlanRequest):
     confirm_token: str = Field(pattern=r"^[0-9a-f]{16}$")
     retry_unknown: bool = False
-    round_index: int = Field(default=1, ge=1, le=20)
+    round_index: int = Field(default=1, ge=1, le=999999)
 
 
 class LoginRequest(BaseModel):

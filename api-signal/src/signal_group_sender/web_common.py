@@ -13,9 +13,9 @@ from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 
-MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
-MAX_TOTAL_ATTACHMENT_BYTES = 20 * 1024 * 1024
-MAX_ATTACHMENT_DATA_URL_CHARS = 11_200_000
+MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024 * 1024
+MAX_TOTAL_ATTACHMENT_BYTES = 500 * 1024 * 1024 * 1024
+MAX_ATTACHMENT_DATA_URL_CHARS = 1_000_000_000
 ATTACHMENT_SIGNATURES = {
     "image/png": (b"\x89PNG\r\n\x1a\n",),
     "image/jpeg": (b"\xff\xd8\xff",),
@@ -150,8 +150,8 @@ def validate_attachment_data_urls(
             raw = base64.b64decode(encoded, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise error_type("Attachment contains invalid base64 data") from exc
-        if not raw or len(raw) > MAX_ATTACHMENT_BYTES:
-            raise error_type("Each attachment must be between 1 byte and 8 MB")
+        if not raw:
+            raise error_type("Attachment must not be empty")
         if media_type == "image/webp":
             valid_signature = raw.startswith(b"RIFF") and raw[8:12] == b"WEBP"
         elif media_type == "video/mp4":
@@ -161,8 +161,6 @@ def validate_attachment_data_urls(
         if not valid_signature:
             raise error_type("Attachment content does not match its MIME type")
         total_bytes += len(raw)
-        if total_bytes > MAX_TOTAL_ATTACHMENT_BYTES:
-            raise error_type("Total attachment size must not exceed 20 MB")
         validated.append(
             ValidatedAttachment(
                 media_type=media_type,

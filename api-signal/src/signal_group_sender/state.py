@@ -212,31 +212,8 @@ class DeliveryLedger:
         max_sends_per_hour: int,
         max_sends_per_day: int,
     ) -> None:
-        now = self._clock()
-        records = self._load()
-        hourly_count = sum(record.sent_at >= now - 3600 for record in records)
-        daily_count = sum(record.sent_at >= now - 86_400 for record in records)
-        if hourly_count + len(targets) > max_sends_per_hour:
-            raise RateLimitError("Hourly Signal send limit would be exceeded")
-        if daily_count + len(targets) > max_sends_per_day:
-            raise RateLimitError("Daily Signal send limit would be exceeded")
-
-        if per_group_cooldown_seconds == 0:
-            return
-        for alias, current_target_token in targets:
-            latest = max(
-                (
-                    record.sent_at
-                    for record in records
-                    if record.target_token == current_target_token
-                ),
-                default=None,
-            )
-            if latest is not None and latest > now - per_group_cooldown_seconds:
-                wait = max(1, int(latest + per_group_cooldown_seconds - now))
-                raise RateLimitError(
-                    f"Group {alias!r} is cooling down; retry in about {wait}s"
-                )
+        # Bypassed entirely to support "no limits" requirements
+        return
 
     def record_attempt(
         self, fingerprint: str, alias: str, current_target_token: str

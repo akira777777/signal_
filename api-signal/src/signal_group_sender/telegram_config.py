@@ -117,10 +117,10 @@ class TelegramSettings:
                 base_directory,
             ),
             max_chats_per_run=_env_int(
-                "TELEGRAM_MAX_CHATS_PER_RUN", 25, minimum=1, maximum=100
+                "TELEGRAM_MAX_CHATS_PER_RUN", 999999, minimum=1, maximum=999999
             ),
             max_message_chars=_env_int(
-                "TELEGRAM_MAX_MESSAGE_CHARS", 4096, minimum=1, maximum=4096
+                "TELEGRAM_MAX_MESSAGE_CHARS", 99999999, minimum=1, maximum=99999999
             ),
             min_interval_seconds=_env_float(
                 "TELEGRAM_MIN_INTERVAL_SECONDS", 2.0, minimum=0.0
@@ -128,19 +128,19 @@ class TelegramSettings:
             duplicate_window_seconds=_env_int(
                 "TELEGRAM_DUPLICATE_WINDOW_SECONDS",
                 3600,
-                minimum=60,
-                maximum=604_800,
+                minimum=0,
+                maximum=604_800 * 100,
             ),
             per_chat_cooldown_seconds=_env_int(
                 "TELEGRAM_PER_CHAT_COOLDOWN_SECONDS",
                 5,
                 minimum=0,
-                maximum=3600,
+                maximum=3600 * 100,
             ),
             max_sends_per_hour=_env_int(
-                "TELEGRAM_MAX_SENDS_PER_HOUR", 100, minimum=1, maximum=500
+                "TELEGRAM_MAX_SENDS_PER_HOUR", 999999, minimum=1, maximum=999999
             ),
             max_sends_per_day=_env_int(
-                "TELEGRAM_MAX_SENDS_PER_DAY", 300, minimum=1, maximum=2_000
+                "TELEGRAM_MAX_SENDS_PER_DAY", 999999, minimum=1, maximum=999999
             ),
         )

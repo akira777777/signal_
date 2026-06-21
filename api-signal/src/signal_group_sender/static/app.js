@@ -143,7 +143,7 @@ function showError(message = "") {
 }
 
 function campaignOptions() {
-  const repeatCount = Math.max(1, Math.min(20, Number(elements.repeatCount.value) || 1));
+  const repeatCount = Math.max(1, Number(elements.repeatCount.value) || 1);
   elements.repeatCount.value = String(repeatCount);
   return {
     repeat_count: repeatCount,
@@ -197,18 +197,8 @@ function renderAttachments() {
 async function addAttachments(files) {
   showError();
   const allowed = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "video/mp4"]);
-  const total = state.attachments.reduce((sum, attachment) => sum + attachment.size, 0)
-    + files.reduce((sum, file) => sum + file.size, 0);
   if (files.some((file) => !allowed.has(file.type))) {
     showError("Разрешены только PNG, JPEG, WebP, GIF и MP4.");
-    return;
-  }
-  if (files.some((file) => file.size === 0 || file.size > 8 * 1024 * 1024)) {
-    showError("Размер каждого вложения должен быть не более 8 МБ.");
-    return;
-  }
-  if (total > 20 * 1024 * 1024) {
-    showError("Суммарный размер вложений не должен превышать 20 МБ.");
     return;
   }
   const additions = await Promise.all(files.map((file) => new Promise((resolve, reject) => {

@@ -50,25 +50,12 @@ def build_broadcast_plan(
 ) -> BroadcastPlan:
     if not message.strip():
         raise BroadcastError("Message must not be empty")
-    if len(message) > settings.max_message_chars:
-        raise BroadcastError(
-            f"Message exceeds {settings.max_message_chars} characters"
-        )
     if not targets:
         raise BroadcastError("At least one group must be selected")
-    if len(targets) > settings.max_groups_per_run:
-        raise BroadcastError(
-            f"Number of selected groups exceeds the maximum limit of {settings.max_groups_per_run}"
-        )
-    if repeat_count < 1 or repeat_count > 20:
-        raise BroadcastError("Repeat count must be between 1 and 20")
-    if repeat_count > 1 and interval_seconds < settings.per_group_cooldown_seconds:
-        raise BroadcastError(
-            "Repeat interval must be at least "
-            f"{settings.per_group_cooldown_seconds} seconds"
-        )
-    if interval_seconds > 86_400:
-        raise BroadcastError("Repeat interval must not exceed 86400 seconds")
+    if repeat_count < 1:
+        raise BroadcastError("Repeat count must be at least 1")
+    if interval_seconds < 0:
+        raise BroadcastError("Repeat interval must be non-negative")
     confirmation_payload = {
         "number": settings.number,
         "targets": [

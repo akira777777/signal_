@@ -149,10 +149,10 @@ class Settings:
                 base_directory,
             ),
             max_groups_per_run=_env_int(
-                "SIGNAL_MAX_GROUPS_PER_RUN", 5, minimum=1, maximum=50
+                "SIGNAL_MAX_GROUPS_PER_RUN", 999999, minimum=1, maximum=999999
             ),
             max_message_chars=_env_int(
-                "SIGNAL_MAX_MESSAGE_CHARS", 10_000, minimum=1, maximum=20_000
+                "SIGNAL_MAX_MESSAGE_CHARS", 99999999, minimum=1, maximum=99999999
             ),
             min_interval_seconds=_env_float(
                 "SIGNAL_MIN_INTERVAL_SECONDS", 2.0, minimum=0.0
@@ -160,20 +160,20 @@ class Settings:
             duplicate_window_seconds=_env_int(
                 "SIGNAL_DUPLICATE_WINDOW_SECONDS",
                 3600,
-                minimum=60,
-                maximum=604_800,
+                minimum=0,
+                maximum=604_800 * 100,
             ),
             per_group_cooldown_seconds=_env_int(
                 "SIGNAL_PER_GROUP_COOLDOWN_SECONDS",
                 5,
-                minimum=1,
-                maximum=3600,
+                minimum=0,
+                maximum=3600 * 100,
             ),
             max_sends_per_hour=_env_int(
-                "SIGNAL_MAX_SENDS_PER_HOUR", 20, minimum=1, maximum=100
+                "SIGNAL_MAX_SENDS_PER_HOUR", 999999, minimum=1, maximum=999999
             ),
             max_sends_per_day=_env_int(
-                "SIGNAL_MAX_SENDS_PER_DAY", 100, minimum=1, maximum=300
+                "SIGNAL_MAX_SENDS_PER_DAY", 999999, minimum=1, maximum=999999
             ),
             request_timeout_seconds=_env_float(
                 "SIGNAL_REQUEST_TIMEOUT_SECONDS", 30.0, minimum=0.1

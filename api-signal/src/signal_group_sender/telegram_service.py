@@ -51,30 +51,12 @@ def build_broadcast_plan(
 ) -> TelegramBroadcastPlan:
     if not message.strip() and not attachment_digests:
         raise TelegramBroadcastError("Message must not be empty")
-    if len(message) > settings.max_message_chars:
-        raise TelegramBroadcastError(
-            f"Message exceeds {settings.max_message_chars} characters"
-        )
-    if attachment_digests and len(message) > 1024:
-        raise TelegramBroadcastError(
-            "Telegram captions with attachments must not exceed 1024 characters"
-        )
     if not targets:
         raise TelegramBroadcastError("At least one chat must be selected")
-    if len(targets) > settings.max_chats_per_run:
-        raise TelegramBroadcastError(
-            "Number of selected chats exceeds the maximum limit of "
-            f"{settings.max_chats_per_run}"
-        )
-    if repeat_count < 1 or repeat_count > 20:
-        raise TelegramBroadcastError("Repeat count must be between 1 and 20")
-    if repeat_count > 1 and interval_seconds < settings.per_chat_cooldown_seconds:
-        raise TelegramBroadcastError(
-            "Repeat interval must be at least "
-            f"{settings.per_chat_cooldown_seconds} seconds"
-        )
-    if interval_seconds > 86_400:
-        raise TelegramBroadcastError("Repeat interval must not exceed 86400 seconds")
+    if repeat_count < 1:
+        raise TelegramBroadcastError("Repeat count must be at least 1")
+    if interval_seconds < 0:
+        raise TelegramBroadcastError("Repeat interval must be non-negative")
 
     payload = {
         "phone_number": settings.phone_number,
