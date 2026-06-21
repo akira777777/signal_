@@ -6,6 +6,8 @@ const state = {
   campaign: null,
   accountPoll: null,
   images: [],
+  history: [],
+  savedDraftSelected: null,
 };
 
 const elements = {
@@ -48,6 +50,22 @@ const elements = {
   countdownLabel: document.querySelector("#countdown-label"),
   countdownValue: document.querySelector("#countdown-value"),
   cancelTimerButton: document.querySelector("#cancel-timer-button"),
+  
+  // New visual elements
+  themeToggle: document.querySelector("#theme-toggle"),
+  sunIcon: document.querySelector("#theme-toggle .sun-icon"),
+  moonIcon: document.querySelector("#theme-toggle .moon-icon"),
+  navBroadcast: document.querySelector("#nav-broadcast"),
+  navHistory: document.querySelector("#nav-history"),
+  viewTitle: document.querySelector("#view-title"),
+  viewSubtitle: document.querySelector("#view-subtitle"),
+  broadcastView: document.querySelector("#broadcast-view"),
+  historyView: document.querySelector("#history-view"),
+  historySearch: document.querySelector("#history-search"),
+  historyStatusFilter: document.querySelector("#history-status-filter"),
+  historyEmpty: document.querySelector("#history-empty"),
+  historyTableWrapper: document.querySelector("#history-table-wrapper"),
+  historyTableBody: document.querySelector("#history-table-body"),
 };
 
 function escapeHtml(value) {
@@ -184,6 +202,7 @@ function updateSelection() {
   elements.selectAll.checked = availableCount > 0 && state.selected.size === availableCount;
   elements.planButton.disabled = state.selected.size === 0 || !elements.message.value.trim();
   invalidatePlan();
+  saveDraft();
 }
 
 function renderGroups() {
@@ -227,11 +246,23 @@ async function loadStatus() {
     const payload = await api("/api/status");
     state.groups = payload.groups;
     state.accounts = payload.accounts || [];
-    state.selected = new Set(
-      [...state.selected].filter((alias) =>
-        state.groups.some((group) => group.alias === alias && group.available)
-      )
-    );
+    
+    // Apply draft groups selection if restored
+    if (state.savedDraftSelected) {
+      state.selected = new Set(
+        [...state.savedDraftSelected].filter((alias) =>
+          state.groups.some((group) => group.alias === alias && group.available)
+        )
+      );
+      state.savedDraftSelected = null;
+    } else {
+      state.selected = new Set(
+        [...state.selected].filter((alias) =>
+          state.groups.some((group) => group.alias === alias && group.available)
+        )
+      );
+    }
+    
     renderAccounts(payload.active_number);
     elements.connectionDot.className = `status-dot ${payload.connected ? "" : "error"}`;
     elements.connectionTitle.textContent = payload.connected ? "Подключено" : "Нет связи";
@@ -437,7 +468,153 @@ async function openAccountLink() {
   }, 3000);
 }
 
-elements.refresh.addEventListener("click", loadStatus);
+/* ------------------- NEW FEATURES CONTROLLERS ------------------- */
+
+/* 1. Theme Toggle System */
+function initTheme() {
+  const savedTheme = localStorage.getItem("theme");
+  const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const isDark = savedTheme === "dark" || (!savedTheme && systemPrefersDark);
+  
+  document.documentElement.classList.toggle("dark-theme", isDark);
+  updateThemeUI(isDark);
+}
+
+function updateThemeUI(isDark) {
+  if (isDark) {
+    elements.sunIcon.classList.remove("hidden");
+    elements.moonIcon.classList.add("hidden");
+  } else {
+    elements.sunIcon.classList.add("hidden");
+    elements.moonIcon.classList.remove("hidden");
+  }
+}
+
+function toggleTheme() {
+  const isDark = document.documentElement.classList.toggle("dark-theme");
+  localStorage.setItem("theme", isDark ? "dark" : "light");
+  updateThemeUI(isDark);
+}
+
+/* 2. View Switcher System */
+function switchView(viewName) {
+  if (viewName === "broadcast") {
+    elements.navBroadcast.classList.add("active");
+    elements.navHistory.classList.remove("active");
+    elements.broadcastView.classList.remove("hidden");
+    elements.historyView.classList.add("hidden");
+    elements.viewTitle.textContent = "Новая рассылка";
+    elements.viewSubtitle.textContent = "Выберите группы, проверьте сообщение и подтвердите отправку.";
+  } else if (viewName === "history") {
+    elements.navBroadcast.classList.remove("active");
+    elements.navHistory.classList.add("active");
+    elements.broadcastView.classList.add("hidden");
+    elements.historyView.classList.remove("hidden");
+    elements.viewTitle.textContent = "История отправлений";
+    elements.viewSubtitle.textContent = "Записи прошлых попыток и текущего сеанса.";
+    loadHistory().catch(() => {});
+  }
+}
+
+/* 3. History Logs Fetching & Filtering */
+async function loadHistory() {
+  try {
+    state.history = await api("/api/history");
+    renderHistory();
+  } catch (error) {
+    showError(error.message);
+  }
+}
+
+function renderHistory() {
+  const query = elements.historySearch.value.trim().toLowerCase();
+  const statusFilter = elements.historyStatusFilter.value;
+  
+  const filtered = state.history.filter((item) => {
+    const matchesSearch = !query || 
+      item.alias.toLowerCase().includes(query) || 
+      item.target_token.toLowerCase().includes(query);
+    const matchesStatus = statusFilter === "all" || item.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+  
+  const labels = {
+    sent: "Доставлено",
+    already_sent: "Уже отправлено",
+    dispatching: "Отправка...",
+    unknown: "Неизвестно",
+    failed: "Ошибка",
+    not_attempted: "Не отправлено",
+  };
+  
+  if (filtered.length === 0) {
+    elements.historyEmpty.classList.remove("hidden");
+    elements.historyTableWrapper.classList.add("hidden");
+  } else {
+    elements.historyEmpty.classList.add("hidden");
+    elements.historyTableWrapper.classList.remove("hidden");
+    elements.historyTableBody.innerHTML = filtered.map((item) => {
+      const dateStr = new Date(item.sent_at * 1000).toLocaleString("ru-RU");
+      const isDispatching = item.status === "dispatching";
+      const statusClass = `result-status ${item.status} ${isDispatching ? 'pulse-badge' : ''}`;
+      return `
+        <tr>
+          <td>${escapeHtml(dateStr)}</td>
+          <td><strong>${escapeHtml(item.alias)}</strong></td>
+          <td><code>${escapeHtml(item.target_token)}</code></td>
+          <td>
+            <span class="${statusClass}">
+              ${escapeHtml(labels[item.status] || item.status)}
+            </span>
+          </td>
+        </tr>
+      `;
+    }).join("");
+  }
+}
+
+/* 4. Draft Caching / Preservation */
+function saveDraft() {
+  const draft = {
+    message: elements.message.value,
+    repeatCount: elements.repeatCount.value,
+    interval: elements.intervalSelect.value,
+    selected: [...state.selected],
+  };
+  localStorage.setItem("signal_draft", JSON.stringify(draft));
+}
+
+function restoreDraft() {
+  try {
+    const raw = localStorage.getItem("signal_draft");
+    if (!raw) return;
+    const draft = JSON.parse(raw);
+    if (draft.message) {
+      elements.message.value = draft.message;
+      elements.charCount.textContent = `${draft.message.length} символов`;
+    }
+    if (draft.repeatCount) {
+      elements.repeatCount.value = draft.repeatCount;
+    }
+    if (draft.interval) {
+      elements.intervalSelect.value = draft.interval;
+    }
+    if (Array.isArray(draft.selected)) {
+      state.savedDraftSelected = new Set(draft.selected);
+    }
+  } catch (e) {
+    console.error("Draft restoration failed:", e);
+  }
+}
+
+/* ------------------- EVENT LISTENERS ------------------- */
+
+elements.refresh.addEventListener("click", () => {
+  loadStatus().catch(() => {});
+  if (!elements.historyView.classList.contains("hidden")) {
+    loadHistory().catch(() => {});
+  }
+});
 elements.search.addEventListener("input", renderGroups);
 elements.selectAll.addEventListener("change", () => {
   state.selected = new Set(
@@ -502,4 +679,14 @@ elements.logoutButton.addEventListener("click", async () => {
   location.href = "/login";
 });
 
+// New feature listeners
+elements.themeToggle.addEventListener("click", toggleTheme);
+elements.navBroadcast.addEventListener("click", () => switchView("broadcast"));
+elements.navHistory.addEventListener("click", () => switchView("history"));
+elements.historySearch.addEventListener("input", renderHistory);
+elements.historyStatusFilter.addEventListener("change", renderHistory);
+
+// Initial setup
+initTheme();
+restoreDraft();
 loadStatus().catch(() => {});

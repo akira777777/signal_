@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 
 from signal_group_sender.client import SignalApiClient
 from signal_group_sender.config import Settings
-from signal_group_sender.service import BroadcastError
+from signal_group_sender.service import BroadcastError, BroadcastService
+from signal_group_sender.state import DeliveryRecord
 from signal_group_sender.web import _validated_images, create_app
 
 
@@ -61,6 +62,55 @@ def test_status_requires_authentication(settings: Settings) -> None:
         response = client.get("/api/status")
 
     assert response.status_code == 401
+
+
+def test_history_requires_authentication(settings: Settings) -> None:
+    with TestClient(create_app(settings, "correct-horse-battery")) as client:
+        response = client.get("/api/history")
+
+    assert response.status_code == 401
+
+
+def test_get_history_returns_records(
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dummy_records = [
+        DeliveryRecord(
+            fingerprint="fp1",
+            alias="ops",
+            target_token="tok1",
+            sent_at=1000.0,
+            status="sent",
+        ),
+        DeliveryRecord(
+            fingerprint="fp2",
+            alias="team",
+            target_token="tok2",
+            sent_at=2000.0,
+            status="failed",
+        ),
+    ]
+
+    monkeypatch.setattr(BroadcastService, "get_history", lambda self: dummy_records)
+
+    with TestClient(create_app(settings, "correct-horse-battery")) as client:
+        client.post(
+            "/api/login",
+            headers={"Origin": "http://127.0.0.1:8787"},
+            json={"password": "correct-horse-battery"},
+        )
+        response = client.get("/api/history")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 2
+    assert payload[0]["alias"] == "team"
+    assert payload[0]["status"] == "failed"
+    assert payload[0]["sent_at"] == 2000.0
+    assert payload[1]["alias"] == "ops"
+    assert payload[1]["status"] == "sent"
+    assert payload[1]["sent_at"] == 1000.0
 
 
 def test_static_asset_is_served(settings: Settings) -> None:

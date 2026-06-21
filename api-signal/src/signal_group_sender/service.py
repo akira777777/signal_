@@ -15,6 +15,7 @@ from signal_group_sender.config import Settings
 from signal_group_sender.groups import GroupTarget
 from signal_group_sender.state import (
     DeliveryLedger,
+    DeliveryRecord,
     delivery_fingerprint,
     target_token,
 )
@@ -131,6 +132,9 @@ class BroadcastService:
 
     def verify_targets(self, targets: list[GroupTarget]) -> None:
         verify_group_targets(self._client, targets)
+
+    def get_history(self) -> list[DeliveryRecord]:
+        return self._ledger.get_records()
 
     def send(
         self,

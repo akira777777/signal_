@@ -122,6 +122,9 @@ class DeliveryLedger:
             )
         self._write([])
 
+    def get_records(self) -> list[DeliveryRecord]:
+        return self._load()
+
     def _load(self) -> list[DeliveryRecord]:
         if not self._path.exists():
             return []

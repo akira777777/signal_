@@ -333,6 +333,22 @@ def create_app(
             ],
         }
 
+    @app.get("/api/history")
+    def get_history(
+        context: ContextDependency,
+        _: AuthDependency,
+    ) -> list[dict[str, Any]]:
+        records = context.service().get_history()
+        return [
+            {
+                "alias": record.alias,
+                "target_token": record.target_token,
+                "sent_at": record.sent_at,
+                "status": record.status,
+            }
+            for record in reversed(records)
+        ]
+
     @app.post("/api/accounts/select")
     def select_account(
         payload: AccountRequest,
