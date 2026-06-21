@@ -140,6 +140,12 @@ class BroadcastService:
     def get_history(self) -> list[DeliveryRecord]:
         return self._ledger.get_records()
 
+    def get_stats(self) -> dict[str, object]:
+        return self._ledger.get_stats(
+            max_sends_per_hour=self._settings.max_sends_per_hour,
+            max_sends_per_day=self._settings.max_sends_per_day,
+        )
+
     def send(
         self,
         targets: list[GroupTarget],

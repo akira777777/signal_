@@ -125,6 +125,34 @@ class DeliveryLedger:
     def get_records(self) -> list[DeliveryRecord]:
         return self._load()
 
+    def get_stats(
+        self,
+        *,
+        max_sends_per_hour: int,
+        max_sends_per_day: int,
+    ) -> dict[str, object]:
+        now = self._clock()
+        records = self._load()
+        hour_cutoff = now - 3600
+        day_cutoff = now - 86_400
+        hourly = [r for r in records if r.sent_at >= hour_cutoff]
+        daily = [r for r in records if r.sent_at >= day_cutoff]
+        sent_today = sum(1 for r in daily if r.status == "sent")
+        failed_today = sum(1 for r in daily if r.status == "failed")
+        total_today = sent_today + failed_today
+        last_sent = max(
+            (r.sent_at for r in records if r.status == "sent"),
+            default=None,
+        )
+        return {
+            "hourly_count": len(hourly),
+            "daily_count": len(daily),
+            "hourly_remaining": max(0, max_sends_per_hour - len(hourly)),
+            "daily_remaining": max(0, max_sends_per_day - len(daily)),
+            "success_rate": round(sent_today / total_today * 100) if total_today else 100,
+            "last_sent_at": last_sent,
+        }
+
     def _load(self) -> list[DeliveryRecord]:
         if not self._path.exists():
             return []

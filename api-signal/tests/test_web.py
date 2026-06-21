@@ -222,3 +222,36 @@ def test_rejects_image_with_mismatched_signature() -> None:
 
     with pytest.raises(BroadcastError, match="does not match"):
         _validated_images([f"data:image/png;base64,{encoded}"])
+
+
+def test_stats_returns_aggregated_data(
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(SignalApiClient, "list_accounts", lambda self: [settings.number])
+    monkeypatch.setattr(
+        SignalApiClient,
+        "list_groups",
+        lambda self: [{"id": "group.abc=", "name": "Ops", "blocked": False}],
+    )
+    with TestClient(create_app(settings, "correct-horse-battery")) as client:
+        client.post(
+            "/api/login",
+            headers={"Origin": "http://127.0.0.1:8787"},
+            json={"password": "correct-horse-battery"},
+        )
+        response = client.get("/api/stats")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["hourly_count"] == 0
+    assert payload["daily_count"] == 0
+    assert payload["success_rate"] == 100
+    assert payload["last_sent_at"] is None
+
+
+def test_stats_requires_auth(settings: Settings) -> None:
+    with TestClient(create_app(settings, "correct-horse-battery")) as client:
+        response = client.get("/api/stats")
+
+    assert response.status_code == 401

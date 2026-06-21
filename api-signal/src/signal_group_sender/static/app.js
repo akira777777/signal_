@@ -66,6 +66,15 @@ const elements = {
   historyEmpty: document.querySelector("#history-empty"),
   historyTableWrapper: document.querySelector("#history-table-wrapper"),
   historyTableBody: document.querySelector("#history-table-body"),
+  toastContainer: document.querySelector("#toast-container"),
+  progressContainer: document.querySelector("#progress-container"),
+  progressLabel: document.querySelector("#progress-label"),
+  progressPercent: document.querySelector("#progress-percent"),
+  progressFill: document.querySelector("#progress-fill"),
+  statHourly: document.querySelector("#stat-hourly"),
+  statDaily: document.querySelector("#stat-daily"),
+  statSuccess: document.querySelector("#stat-success"),
+  statRemaining: document.querySelector("#stat-remaining"),
 };
 
 function escapeHtml(value) {
@@ -407,19 +416,25 @@ async function runCampaign() {
         ...payload.results.map((result) => ({...result, round_index: round}))
       );
       renderResults(campaign.results);
+      updateProgress(round, state.plan.repeat_count);
       if (!payload.complete) break;
       if (round < state.plan.repeat_count) {
         await waitInterval(state.plan.interval_seconds, round + 1);
       }
     }
+    playNotificationSound();
+    showToast("Кампания завершена", "success");
   } catch (error) {
     showError(error.message);
+    showToast(error.message, "error");
   } finally {
     state.campaign = null;
     elements.countdownBox.classList.add("hidden");
+    elements.progressContainer.classList.add("hidden");
     setCampaignControls(false);
     invalidatePlan();
     updateSelection();
+    loadStats().catch(() => {});
   }
 }
 
@@ -494,6 +509,71 @@ function toggleTheme() {
   const isDark = document.documentElement.classList.toggle("dark-theme");
   localStorage.setItem("theme", isDark ? "dark" : "light");
   updateThemeUI(isDark);
+}
+
+/* Toast Notification System */
+function showToast(message, type = "info", duration = 5000) {
+  const icons = {
+    success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>',
+    error: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>',
+    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M12 11v5"/></svg>',
+  };
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `
+    <span class="toast-icon">${icons[type] || icons.info}</span>
+    <span>${escapeHtml(message)}</span>
+    <button class="toast-close" type="button">×</button>
+  `;
+  elements.toastContainer.appendChild(toast);
+  const dismiss = () => {
+    toast.classList.add("dismissing");
+    setTimeout(() => toast.remove(), 300);
+  };
+  toast.querySelector(".toast-close").addEventListener("click", dismiss);
+  setTimeout(dismiss, duration);
+}
+
+/* Campaign Progress Bar */
+function updateProgress(round, total) {
+  if (total <= 1) {
+    elements.progressContainer.classList.add("hidden");
+    return;
+  }
+  const percent = Math.round((round / total) * 100);
+  elements.progressContainer.classList.remove("hidden");
+  elements.progressLabel.textContent = `Цикл ${round} из ${total}`;
+  elements.progressPercent.textContent = `${percent}%`;
+  elements.progressFill.style.width = `${percent}%`;
+}
+
+/* Notification Sound (Web Audio API) */
+function playNotificationSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+    oscillator.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    oscillator.start(ctx.currentTime);
+    oscillator.stop(ctx.currentTime + 0.35);
+  } catch { /* silently ignore in environments without Web Audio API */ }
+}
+
+/* Stats Widget */
+async function loadStats() {
+  try {
+    const stats = await api("/api/stats");
+    elements.statHourly.textContent = stats.hourly_count;
+    elements.statDaily.textContent = stats.daily_count;
+    elements.statSuccess.textContent = `${stats.success_rate}%`;
+    elements.statRemaining.textContent = `${stats.hourly_remaining} / ${stats.daily_remaining}`;
+  } catch { /* silently ignore on stats failure */ }
 }
 
 /* 2. View Switcher System */
@@ -686,7 +766,43 @@ elements.navHistory.addEventListener("click", () => switchView("history"));
 elements.historySearch.addEventListener("input", renderHistory);
 elements.historyStatusFilter.addEventListener("change", renderHistory);
 
+// Keyboard shortcuts
+document.addEventListener("keydown", (event) => {
+  // Ctrl+Enter to send (when plan is ready)
+  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+    if (state.plan && !elements.sendButton.disabled && !state.campaign) {
+      event.preventDefault();
+      elements.sendButton.click();
+    }
+  }
+  // Escape to close dialogs
+  if (event.key === "Escape") {
+    if (elements.dialog.open) elements.dialog.close();
+    if (elements.accountDialog.open) elements.accountDialog.close();
+  }
+});
+
+// Auto-refresh history (every 30s when History tab is open)
+let historyRefreshInterval = null;
+function startHistoryAutoRefresh() {
+  stopHistoryAutoRefresh();
+  historyRefreshInterval = setInterval(() => {
+    if (!elements.historyView.classList.contains("hidden")) {
+      loadHistory().catch(() => {});
+      loadStats().catch(() => {});
+    }
+  }, 30000);
+}
+function stopHistoryAutoRefresh() {
+  if (historyRefreshInterval) {
+    clearInterval(historyRefreshInterval);
+    historyRefreshInterval = null;
+  }
+}
+
 // Initial setup
 initTheme();
 restoreDraft();
 loadStatus().catch(() => {});
+loadStats().catch(() => {});
+startHistoryAutoRefresh();

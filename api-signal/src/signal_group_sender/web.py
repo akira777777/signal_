@@ -349,6 +349,13 @@ def create_app(
             for record in reversed(records)
         ]
 
+    @app.get("/api/stats")
+    def get_stats(
+        context: ContextDependency,
+        _: AuthDependency,
+    ) -> dict[str, Any]:
+        return context.service().get_stats()
+
     @app.post("/api/accounts/select")
     def select_account(
         payload: AccountRequest,
