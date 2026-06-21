@@ -249,6 +249,8 @@ class TelegramApiClient:
         else:
             return None
 
+        if not available:
+            return None
         if available and not await self._has_recent_post(client, dialog):
             return None
 
