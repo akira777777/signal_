@@ -272,7 +272,10 @@ def test_campaign_endpoints_record_send_and_refresh_engagement(
         },
     )
 
-    def collect_engagement(self: TelegramApiClient, records: list[object]) -> dict[tuple[str, int, str], tuple[int, int]]:
+    def collect_engagement(
+        self: TelegramApiClient,
+        records: list[object],
+    ) -> dict[tuple[str, int, str], tuple[int, int]]:
         record = records[0]
         return {(record.alias, record.round_index, record.variant_id): (1, 1)}
 

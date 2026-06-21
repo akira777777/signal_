@@ -260,6 +260,7 @@ class TelegramWebContext:
                 delivery_scope=f"{snapshot['confirm_token']}:{round_index}",
                 attachments=attachments,
                 attachment_digests=attachment_digests,
+                campaign_id=str(snapshot["id"]),
             )
         return [asdict(result) for result in results]
 

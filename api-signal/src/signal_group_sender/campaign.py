@@ -166,6 +166,20 @@ class PersistentCampaignManager:
             if snapshot["status"] == "cancel_requested":
                 self._finish(snapshot, "cancelled")
                 return
+            incomplete = [
+                str(result.get("alias", "unknown"))
+                for result in round_results
+                if result.get("status") not in {"sent", "already_sent"}
+            ]
+            if incomplete:
+                snapshot["status"] = "failed"
+                snapshot["next_run_at"] = None
+                snapshot["error"] = (
+                    f"Round {round_index} did not complete for: "
+                    + ", ".join(incomplete)
+                )
+                self._write(snapshot)
+                return
             if round_index >= repeat_count:
                 self._finish(snapshot, "completed")
                 return
