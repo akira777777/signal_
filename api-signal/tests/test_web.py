@@ -34,6 +34,8 @@ def test_login_and_dashboard_render(settings: Settings) -> None:
     assert "Количество отправок" in response.text
     assert "Подключить другой аккаунт" in response.text
     assert "Выйти" in response.text
+    assert "Telegram на той же странице" in response.text
+    assert 'src="http://127.0.0.1:8788/"' in response.text
 
 
 def test_post_requires_same_origin(settings: Settings) -> None:

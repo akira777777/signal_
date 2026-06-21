@@ -90,178 +90,217 @@
         </div>
       </div>
 
-      <!-- Broadcast Workspace (Default View) -->
-      <div id="broadcast-view" class="workspace">
-        <section class="groups-panel" aria-labelledby="groups-heading">
-          <div class="section-heading">
+      <div class="channels-layout">
+        <section class="signal-stack" aria-labelledby="signal-workspace-heading">
+          <div class="channel-banner">
             <div>
-              <h2 id="groups-heading">Группы</h2>
-              <span id="selection-count">0 выбрано</span>
+              <span class="channel-eyebrow">Signal</span>
+              <h2 id="signal-workspace-heading">Рабочая область Signal</h2>
+              <p>Основная рассылка, история запусков и текущий результат остаются на этой же странице.</p>
             </div>
-            <label class="select-all">
-              <input id="select-all" type="checkbox">
-              Выбрать все
-            </label>
           </div>
-          <label class="search">
-            <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" fill="currentColor"/></svg>
-            <input id="group-search" type="search" placeholder="Поиск группы">
-          </label>
-          <div id="groups-list" class="groups-list" aria-live="polite">
-            <div class="skeleton"></div>
-            <div class="skeleton"></div>
-            <div class="skeleton"></div>
-          </div>
-        </section>
 
-        <section class="composer-panel" aria-labelledby="message-heading">
-          <div class="section-heading">
-            <div>
-              <h2 id="message-heading">Сообщение</h2>
-              <span>Текст не сохраняется в журнале</span>
-            </div>
-            <span id="char-count">0 символов</span>
-          </div>
-          <textarea id="message" maxlength="20000" placeholder="Введите сообщение"></textarea>
-          <div class="attachments">
-            <div class="attachments-heading">
-              <div>
-                <strong>Изображения</strong>
-                <span>PNG, JPEG, WebP или GIF</span>
+          <!-- Broadcast Workspace (Default View) -->
+          <div id="broadcast-view" class="workspace">
+            <section class="groups-panel" aria-labelledby="groups-heading">
+              <div class="section-heading">
+                <div>
+                  <h2 id="groups-heading">Группы</h2>
+                  <span id="selection-count">0 выбрано</span>
+                </div>
+                <label class="select-all">
+                  <input id="select-all" type="checkbox">
+                  Выбрать все
+                </label>
               </div>
-              <label class="button secondary attachment-button" for="image-input">
-                Добавить изображения
-              </label>
-              <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
-            </div>
-            <div id="image-previews" class="image-previews hidden"></div>
-          </div>
-          <div class="repeat-row">
-            <label for="repeat-count">
-              <span>Количество отправок</span>
-              <input id="repeat-count" type="number" min="1" max="20" value="1">
-            </label>
-            <label for="interval-select">
-              <span>Интервал между отправками</span>
-              <select id="interval-select">
-                <option value="5">5 секунд</option>
-                <option value="10">10 секунд</option>
-                <option value="30">30 секунд</option>
-                <option value="60" selected>1 минута</option>
-                <option value="300">5 минут</option>
-                <option value="900">15 минут</option>
-                <option value="1800">30 минут</option>
-                <option value="3600">1 час</option>
-              </select>
-            </label>
-            <small>Интервал применяется после каждой завершённой отправки. Вкладка должна оставаться открытой.</small>
-          </div>
-          <div id="countdown-box" class="countdown-box hidden">
-            <div>
-              <span id="countdown-label">Следующая отправка через</span>
-              <strong id="countdown-value">00:00</strong>
-            </div>
-            <button id="cancel-timer-button" class="button secondary" type="button">Остановить повторы</button>
-          </div>
-          <div id="progress-container" class="progress-container hidden">
-            <div class="progress-header">
-              <span id="progress-label">Цикл 1 из 1</span>
-              <small id="progress-percent">0%</small>
-            </div>
-            <div class="progress-track">
-              <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
-            </div>
-          </div>
-          <div id="plan-box" class="plan-box hidden">
-            <div>
-              <span>Получатели</span>
-              <strong id="plan-groups">—</strong>
-            </div>
-            <div>
-              <span>Изображения</span>
-              <strong id="plan-images">0</strong>
-            </div>
-            <div>
-              <span>Код подтверждения</span>
-              <code id="confirm-token">—</code>
-            </div>
-          </div>
-          <div id="error-box" class="error-box hidden" role="alert"></div>
-          <div class="actions">
-            <button id="plan-button" class="button secondary" type="button">Проверить отправку</button>
-            <button id="send-button" class="button primary" type="button" disabled>Отправить<span class="kbd-hint">Ctrl+↵</span></button>
-          </div>
-          <p class="safety-note">При неизвестном результате автоматический повтор отключён.</p>
-        </section>
-      </div>
-
-      <!-- History Workspace (Hidden by Default) -->
-      <div id="history-view" class="workspace hidden">
-        <section class="groups-panel" style="grid-column: span 2; min-height: 480px;" aria-labelledby="history-logs-heading">
-          <div class="section-heading">
-            <div>
-              <h2 id="history-logs-heading">История отправлений</h2>
-              <span>Записи текущего сеанса и прошлые попытки</span>
-            </div>
-          </div>
-          <div class="history-logs-container">
-            <div class="history-filter-bar">
               <label class="search">
                 <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" fill="currentColor"/></svg>
-                <input id="history-search" type="search" placeholder="Поиск по имени или токену">
+                <input id="group-search" type="search" placeholder="Поиск группы">
               </label>
-              <select id="history-status-filter" aria-label="Фильтр по статусу">
-                <option value="all">Все статусы</option>
-                <option value="sent">Доставлено</option>
-                <option value="already_sent">Уже отправлено</option>
-                <option value="dispatching">Отправка...</option>
-                <option value="unknown">Неизвестно</option>
-                <option value="failed">Ошибка</option>
-              </select>
-            </div>
-            
-            <div id="history-empty" class="empty-state">
-              <div class="empty-state-icon">
-                <svg viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
+              <div id="groups-list" class="groups-list" aria-live="polite">
+                <div class="skeleton"></div>
+                <div class="skeleton"></div>
+                <div class="skeleton"></div>
               </div>
-              Записей в истории пока нет.
-            </div>
-            
-            <div id="history-table-wrapper" class="history-table-container hidden">
-              <table class="history-table">
-                <thead>
-                  <tr>
-                    <th>Время попытки</th>
-                    <th>Группа / Направление</th>
-                    <th>Токен адресата</th>
-                    <th>Статус</th>
-                  </tr>
-                </thead>
-                <tbody id="history-table-body">
-                  <!-- Rendered dynamically -->
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-      </div>
+            </section>
 
-      <!-- Campaign status panel (Fixed bottom/side display of current campaign logs) -->
-      <section class="history-panel" aria-labelledby="history-heading">
-        <div class="section-heading">
-          <div>
-            <h2 id="history-heading">Результат отправки</h2>
-            <span>Текущий запуск</span>
+            <section class="composer-panel" aria-labelledby="message-heading">
+              <div class="section-heading">
+                <div>
+                  <h2 id="message-heading">Сообщение</h2>
+                  <span>Текст не сохраняется в журнале</span>
+                </div>
+                <span id="char-count">0 символов</span>
+              </div>
+              <textarea id="message" maxlength="20000" placeholder="Введите сообщение"></textarea>
+              <div class="attachments">
+                <div class="attachments-heading">
+                  <div>
+                    <strong>Изображения</strong>
+                    <span>PNG, JPEG, WebP или GIF</span>
+                  </div>
+                  <label class="button secondary attachment-button" for="image-input">
+                    Добавить изображения
+                  </label>
+                  <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+                </div>
+                <div id="image-previews" class="image-previews hidden"></div>
+              </div>
+              <div class="repeat-row">
+                <label for="repeat-count">
+                  <span>Количество отправок</span>
+                  <input id="repeat-count" type="number" min="1" max="20" value="1">
+                </label>
+                <label for="interval-select">
+                  <span>Интервал между отправками</span>
+                  <select id="interval-select">
+                    <option value="5">5 секунд</option>
+                    <option value="10">10 секунд</option>
+                    <option value="30">30 секунд</option>
+                    <option value="60" selected>1 минута</option>
+                    <option value="300">5 минут</option>
+                    <option value="900">15 минут</option>
+                    <option value="1800">30 минут</option>
+                    <option value="3600">1 час</option>
+                  </select>
+                </label>
+                <small>Интервал применяется после каждой завершённой отправки. Вкладка должна оставаться открытой.</small>
+              </div>
+              <div id="countdown-box" class="countdown-box hidden">
+                <div>
+                  <span id="countdown-label">Следующая отправка через</span>
+                  <strong id="countdown-value">00:00</strong>
+                </div>
+                <button id="cancel-timer-button" class="button secondary" type="button">Остановить повторы</button>
+              </div>
+              <div id="progress-container" class="progress-container hidden">
+                <div class="progress-header">
+                  <span id="progress-label">Цикл 1 из 1</span>
+                  <small id="progress-percent">0%</small>
+                </div>
+                <div class="progress-track">
+                  <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+                </div>
+              </div>
+              <div id="plan-box" class="plan-box hidden">
+                <div>
+                  <span>Получатели</span>
+                  <strong id="plan-groups">—</strong>
+                </div>
+                <div>
+                  <span>Изображения</span>
+                  <strong id="plan-images">0</strong>
+                </div>
+                <div>
+                  <span>Код подтверждения</span>
+                  <code id="confirm-token">—</code>
+                </div>
+              </div>
+              <div id="error-box" class="error-box hidden" role="alert"></div>
+              <div class="actions">
+                <button id="plan-button" class="button secondary" type="button">Проверить отправку</button>
+                <button id="send-button" class="button primary" type="button" disabled>Отправить<span class="kbd-hint">Ctrl+↵</span></button>
+              </div>
+              <p class="safety-note">При неизвестном результате автоматический повтор отключён.</p>
+            </section>
           </div>
-        </div>
-        <div id="results-empty" class="empty-state">
-          <div class="empty-state-icon">
-            <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2"/></svg>
+
+          <!-- History Workspace (Hidden by Default) -->
+          <div id="history-view" class="workspace hidden">
+            <section class="groups-panel" style="grid-column: span 2; min-height: 480px;" aria-labelledby="history-logs-heading">
+              <div class="section-heading">
+                <div>
+                  <h2 id="history-logs-heading">История отправлений</h2>
+                  <span>Записи текущего сеанса и прошлые попытки</span>
+                </div>
+              </div>
+              <div class="history-logs-container">
+                <div class="history-filter-bar">
+                  <label class="search">
+                    <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" fill="currentColor"/></svg>
+                    <input id="history-search" type="search" placeholder="Поиск по имени или токену">
+                  </label>
+                  <select id="history-status-filter" aria-label="Фильтр по статусу">
+                    <option value="all">Все статусы</option>
+                    <option value="sent">Доставлено</option>
+                    <option value="already_sent">Уже отправлено</option>
+                    <option value="dispatching">Отправка...</option>
+                    <option value="unknown">Неизвестно</option>
+                    <option value="failed">Ошибка</option>
+                  </select>
+                </div>
+
+                <div id="history-empty" class="empty-state">
+                  <div class="empty-state-icon">
+                    <svg viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
+                  </div>
+                  Записей в истории пока нет.
+                </div>
+
+                <div id="history-table-wrapper" class="history-table-container hidden">
+                  <table class="history-table">
+                    <thead>
+                      <tr>
+                        <th>Время попытки</th>
+                        <th>Группа / Направление</th>
+                        <th>Токен адресата</th>
+                        <th>Статус</th>
+                      </tr>
+                    </thead>
+                    <tbody id="history-table-body">
+                      <!-- Rendered dynamically -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
           </div>
-          Результаты появятся после отправки.
-        </div>
-        <div id="results-table" class="results-table hidden"></div>
-      </section>
+
+          <!-- Campaign status panel (Fixed bottom/side display of current campaign logs) -->
+          <section class="history-panel" aria-labelledby="history-heading">
+            <div class="section-heading">
+              <div>
+                <h2 id="history-heading">Результат отправки</h2>
+                <span>Текущий запуск</span>
+              </div>
+            </div>
+            <div id="results-empty" class="empty-state">
+              <div class="empty-state-icon">
+                <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2"/></svg>
+              </div>
+              Результаты появятся после отправки.
+            </div>
+            <div id="results-table" class="results-table hidden"></div>
+          </section>
+        </section>
+
+        <aside class="telegram-dock" aria-labelledby="telegram-panel-heading">
+          <div class="telegram-card">
+            <div class="channel-banner compact">
+              <div>
+                <span class="channel-eyebrow telegram">Telegram</span>
+                <h2 id="telegram-panel-heading">Telegram на той же странице</h2>
+                <p>Отдельная панель загружается прямо здесь. Можно работать с двумя каналами рядом и при необходимости открыть Telegram отдельно.</p>
+              </div>
+              <a class="button secondary" href="http://127.0.0.1:8788/" target="_blank" rel="noreferrer">
+                Открыть отдельно
+              </a>
+            </div>
+            <div class="telegram-tips">
+              <div class="tip-chip">Локальный адрес: <code>127.0.0.1:8788</code></div>
+              <div class="tip-chip">Авторизация Telegram остаётся изолированной</div>
+            </div>
+            <div class="telegram-frame-shell">
+              <iframe
+                class="telegram-frame"
+                src="http://127.0.0.1:8788/"
+                title="Telegram Панель"
+                loading="lazy">
+              </iframe>
+            </div>
+          </div>
+        </aside>
+      </div>
     </main>
   </div>
 
