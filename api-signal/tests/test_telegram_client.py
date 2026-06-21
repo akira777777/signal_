@@ -86,7 +86,7 @@ def _client(
     )
 
 
-def test_list_dialogs_keeps_only_targets_with_recent_outgoing_posts(
+def test_list_dialogs_keeps_only_targets_with_recent_posts(
     telegram_settings: TelegramSettings,
     monkeypatch,
 ) -> None:
@@ -106,8 +106,8 @@ def test_list_dialogs_keeps_only_targets_with_recent_outgoing_posts(
     dialogs = [
         FakeDialog(FakeChat(), "1001", "Promo Group"),
         FakeDialog(FakeChat(), "1002", "Quiet Group"),
-        FakeDialog(FakeChannel(megagroup=True), "1003", "Promo Supergroup"),
-        FakeDialog(FakeChannel(broadcast=True, creator=True), "1004", "Promo Channel"),
+        FakeDialog(FakeChannel(megagroup=True), "1003", "Zulu Supergroup"),
+        FakeDialog(FakeChannel(broadcast=True, creator=True), "1004", "Alpha Channel"),
         FakeDialog(FakeUser(), "1005", "Direct User"),
     ]
     for dialog in dialogs:
@@ -126,21 +126,27 @@ def test_list_dialogs_keeps_only_targets_with_recent_outgoing_posts(
 
     assert result == [
         {
+            "id": "1004",
+            "name": "Alpha Channel",
+            "kind": "channel",
+            "available": True,
+        },
+        {
+            "id": "1003",
+            "name": "Zulu Supergroup",
+            "kind": "supergroup",
+            "available": True,
+        },
+        {
             "id": "1001",
             "name": "Promo Group",
             "kind": "group",
             "available": True,
         },
         {
-            "id": "1003",
-            "name": "Promo Supergroup",
-            "kind": "supergroup",
-            "available": True,
-        },
-        {
-            "id": "1004",
-            "name": "Promo Channel",
-            "kind": "channel",
+            "id": "1002",
+            "name": "Quiet Group",
+            "kind": "group",
             "available": True,
         },
     ]

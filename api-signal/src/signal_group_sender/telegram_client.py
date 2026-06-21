@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import io
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from functools import lru_cache
@@ -73,6 +74,11 @@ def _telethon_runtime() -> TelethonRuntime:
 
 class TelegramApiClient:
     RECENT_POST_LOOKBACK = 40
+    KIND_SORT_ORDER = {
+        "channel": 0,
+        "supergroup": 1,
+        "group": 2,
+    }
 
     def __init__(
         self,
@@ -201,6 +207,7 @@ class TelegramApiClient:
                 rendered = await self._dialog_record(client, dialog, runtime)
                 if rendered is not None:
                     dialogs.append(rendered)
+            dialogs.sort(key=self._dialog_sort_key)
             return dialogs
         except TelegramAuthRequiredError:
             raise
@@ -224,28 +231,25 @@ class TelegramApiClient:
             return None
         elif isinstance(entity, runtime.chat_type):
             kind = "group"
-            available = not getattr(entity, "left", False) and not getattr(
-                entity, "deactivated", False
+            available = self._is_active_group(entity) and self._can_send_in_chat_now(
+                entity
             )
         elif isinstance(entity, runtime.channel_type):
             if getattr(entity, "megagroup", False):
                 kind = "supergroup"
-                available = not getattr(entity, "left", False)
+                available = self._is_active_supergroup(entity) and self._can_send_in_chat_now(
+                    entity
+                )
             elif getattr(entity, "broadcast", False):
                 kind = "channel"
-                admin_rights = getattr(entity, "admin_rights", None)
-                can_post = bool(
-                    getattr(entity, "creator", False)
-                    or getattr(admin_rights, "post_messages", False)
-                )
-                available = can_post and not getattr(entity, "left", False)
+                available = self._is_active_channel(entity)
             else:
                 kind = "channel"
-                available = not getattr(entity, "left", False)
+                available = self._is_active_channel(entity)
         else:
             return None
 
-        if available and not await self._has_recent_outgoing_post(client, dialog):
+        if available and not await self._has_recent_post(client, dialog):
             return None
 
         peer_id = str(runtime.get_peer_id(entity))
@@ -267,7 +271,7 @@ class TelegramApiClient:
             "available": available,
         }
 
-    async def _has_recent_outgoing_post(self, client: Any, dialog: Any) -> bool:
+    async def _has_recent_post(self, client: Any, dialog: Any) -> bool:
         async for message in client.iter_messages(
             dialog,
             limit=self.RECENT_POST_LOOKBACK,
@@ -278,14 +282,65 @@ class TelegramApiClient:
 
     @staticmethod
     def _is_recent_post_candidate(message: Any) -> bool:
-        if getattr(message, "out", False) is not True:
-            return False
         if getattr(message, "action", None) is not None:
             return False
         text = getattr(message, "message", None)
         if isinstance(text, str) and text.strip():
             return True
         return getattr(message, "media", None) is not None
+
+    @staticmethod
+    def _is_active_group(entity: Any) -> bool:
+        return not getattr(entity, "left", False) and not getattr(
+            entity, "deactivated", False
+        )
+
+    @staticmethod
+    def _is_active_supergroup(entity: Any) -> bool:
+        return not getattr(entity, "left", False)
+
+    @staticmethod
+    def _is_active_channel(entity: Any) -> bool:
+        return not getattr(entity, "left", False)
+
+    @classmethod
+    def _can_send_in_chat_now(cls, entity: Any) -> bool:
+        if getattr(entity, "creator", False):
+            return True
+        admin_rights = getattr(entity, "admin_rights", None)
+        if admin_rights is not None and getattr(admin_rights, "send_messages", None) is True:
+            return True
+        if cls._has_send_restriction(getattr(entity, "banned_rights", None)):
+            return False
+        if cls._has_send_restriction(getattr(entity, "default_banned_rights", None)):
+            return False
+        if cls._has_send_restriction(getattr(entity, "permissions", None)):
+            return False
+        if getattr(entity, "restricted", False):
+            return False
+        return True
+
+    @staticmethod
+    def _has_send_restriction(rights: Any) -> bool:
+        if rights is None:
+            return False
+        send_messages = getattr(rights, "send_messages", None)
+        if send_messages is True:
+            return True
+        if send_messages is False:
+            return False
+        until_date = getattr(rights, "until_date", None)
+        if isinstance(until_date, (int, float)) and math.isfinite(until_date) and until_date > 0:
+            return True
+        return False
+
+    @classmethod
+    def _dialog_sort_key(cls, dialog: dict[str, Any]) -> tuple[int, str]:
+        kind = dialog.get("kind")
+        name = dialog.get("name")
+        rank = cls.KIND_SORT_ORDER.get(kind, len(cls.KIND_SORT_ORDER))
+        normalized_name = name.casefold() if isinstance(name, str) else ""
+        return rank, normalized_name
 
     def send_chat(
         self,
