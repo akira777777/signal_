@@ -249,3 +249,68 @@ def test_validates_telegram_mp4_attachment() -> None:
     assert attachments[0].name.endswith(".mp4")
     assert attachments[0].mime_type == "video/mp4"
     assert len(digests[0]) == 64
+
+
+def test_campaign_endpoints_record_send_and_refresh_engagement(
+    telegram_settings: TelegramSettings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(TelegramApiClient, "is_authorized", lambda self: True)
+    monkeypatch.setattr(
+        TelegramApiClient,
+        "list_dialogs",
+        lambda self: [
+            {"id": "1001", "name": "Ops", "kind": "group", "available": True},
+        ],
+    )
+    monkeypatch.setattr(
+        TelegramApiClient,
+        "send_chat",
+        lambda self, peer_id, message, attachments=None: {
+            "result": "ok",
+            "message_ids": [55],
+        },
+    )
+
+    def collect_engagement(self: TelegramApiClient, records: list[object]) -> dict[tuple[str, int, str], tuple[int, int]]:
+        record = records[0]
+        return {(record.alias, record.round_index, record.variant_id): (1, 1)}
+
+    monkeypatch.setattr(TelegramApiClient, "collect_engagement", collect_engagement)
+
+    with TestClient(create_app(telegram_settings, "correct-horse-battery")) as client:
+        client.post(
+            "/api/login",
+            headers={"Origin": "http://127.0.0.1:8788"},
+            json={"password": "correct-horse-battery"},
+        )
+        status = client.get("/api/status")
+        alias = status.json()["chats"][0]["alias"]
+        plan = client.post(
+            "/api/plan",
+            headers={"Origin": "http://127.0.0.1:8788"},
+            json={"aliases": [alias], "message": "hello"},
+        ).json()
+        send = client.post(
+            "/api/send",
+            headers={"Origin": "http://127.0.0.1:8788"},
+            json={
+                "aliases": [alias],
+                "message": "hello",
+                "confirm_token": plan["confirm_token"],
+                "variant_id": "A",
+            },
+        )
+        campaigns = client.get("/api/campaigns")
+        refreshed = client.post(
+            f"/api/campaigns/{send.json()['campaign_id']}/refresh-engagement",
+            headers={"Origin": "http://127.0.0.1:8788"},
+            json={},
+        )
+
+    assert send.status_code == 200
+    assert send.json()["campaign_id"].startswith("tg-")
+    assert campaigns.status_code == 200
+    assert campaigns.json()[0]["sent"] == 1
+    assert refreshed.status_code == 200
+    assert refreshed.json()["reply_rate"] == 100
