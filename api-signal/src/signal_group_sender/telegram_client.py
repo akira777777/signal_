@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import io
+import logging
 import math
 import threading
 import time
@@ -19,6 +20,8 @@ from signal_group_sender.telegram_campaigns import (
     TelegramCampaignDelivery,
 )
 from signal_group_sender.telegram_config import TelegramSettings
+
+LOGGER = logging.getLogger("signal_group_sender.telegram_client")
 
 T = TypeVar("T")
 
@@ -234,16 +237,52 @@ class TelegramApiClient:
         try:
             await self._ensure_authorized(client)
             dialogs: list[dict[str, Any]] = []
+            to_leave: list[Any] = []
             async for dialog in client.iter_dialogs():
+                entity = getattr(dialog, "entity", None)
+                if entity is None:
+                    continue
+                if isinstance(entity, runtime.user_type):
+                    continue
+                is_group = isinstance(entity, runtime.chat_type)
+                is_supergroup = isinstance(entity, runtime.channel_type) and getattr(
+                    entity, "megagroup", False
+                )
+                if not (is_group or is_supergroup):
+                    continue
+                is_active = (
+                    self._is_active_group(entity)
+                    if is_group
+                    else self._is_active_supergroup(entity)
+                )
+                if is_active:
+                    can_send = self._can_send_in_chat_now(entity)
+                    can_send_media = self._can_send_media_in_chat_now(entity)
+                    if not can_send or not can_send_media:
+                        to_leave.append((dialog, entity))
+                        continue
                 rendered = await self._dialog_record(client, dialog, runtime)
                 if rendered is not None:
                     dialogs.append(rendered)
+
+            for dialog, entity in to_leave:
+                title = getattr(dialog, "title", None) or str(entity.id)
+                LOGGER.info(
+                    f"Leaving group/channel '{title}' due to media send restrictions"
+                )
+                try:
+                    await client.delete_dialog(entity)
+                except Exception as exc:
+                    LOGGER.error(f"Failed to leave group/channel '{title}': {exc}")
+
             dialogs.sort(key=self._dialog_sort_key)
             return dialogs
         except TelegramAuthRequiredError:
             raise
         except runtime.rpc_error as exc:
-            raise TelegramApiError(f"Telegram rejected the dialog listing request: {exc}") from exc
+            raise TelegramApiError(
+                f"Telegram rejected the dialog listing request: {exc}"
+            ) from exc
         except (OSError, TimeoutError) as exc:
             raise TelegramApiError("Telegram is unavailable") from exc
 
@@ -262,15 +301,19 @@ class TelegramApiClient:
             return None
         elif isinstance(entity, runtime.chat_type):
             kind = "group"
-            available = self._is_active_group(entity) and self._can_send_in_chat_now(
-                entity
+            available = (
+                self._is_active_group(entity)
+                and self._can_send_in_chat_now(entity)
+                and self._can_send_media_in_chat_now(entity)
             )
         elif isinstance(entity, runtime.channel_type):
             if getattr(entity, "megagroup", False):
                 kind = "supergroup"
-                available = self._is_active_supergroup(
-                    entity
-                ) and self._can_send_in_chat_now(entity)
+                available = (
+                    self._is_active_supergroup(entity)
+                    and self._can_send_in_chat_now(entity)
+                    and self._can_send_media_in_chat_now(entity)
+                )
             else:
                 return None
         else:
@@ -387,6 +430,29 @@ class TelegramApiClient:
             and math.isfinite(until_date)
             and until_date > 0
         )
+
+    @classmethod
+    def _can_send_media_in_chat_now(cls, entity: Any) -> bool:
+        if getattr(entity, "creator", False):
+            return True
+        admin_rights = getattr(entity, "admin_rights", None)
+        if admin_rights is not None and getattr(admin_rights, "send_messages", None) is True:
+            return True
+        if cls._has_media_restriction(getattr(entity, "banned_rights", None)):
+            return False
+        if cls._has_media_restriction(getattr(entity, "default_banned_rights", None)):
+            return False
+        return not cls._has_media_restriction(getattr(entity, "permissions", None))
+
+    @staticmethod
+    def _has_media_restriction(rights: Any) -> bool:
+        if rights is None:
+            return False
+        for attr in ("send_media", "send_photos", "send_videos"):
+            val = getattr(rights, attr, None)
+            if val is True:
+                return True
+        return False
 
     @classmethod
     def _dialog_sort_key(cls, dialog: dict[str, Any]) -> tuple[int, str]:
