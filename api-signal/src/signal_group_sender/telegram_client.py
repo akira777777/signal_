@@ -72,6 +72,8 @@ def _telethon_runtime() -> TelethonRuntime:
 
 
 class TelegramApiClient:
+    RECENT_POST_LOOKBACK = 40
+
     def __init__(
         self,
         settings: TelegramSettings,
@@ -196,7 +198,7 @@ class TelegramApiClient:
             await self._ensure_authorized(client)
             dialogs: list[dict[str, Any]] = []
             async for dialog in client.iter_dialogs():
-                rendered = self._dialog_record(dialog, runtime)
+                rendered = await self._dialog_record(client, dialog, runtime)
                 if rendered is not None:
                     dialogs.append(rendered)
             return dialogs
@@ -207,8 +209,9 @@ class TelegramApiClient:
         except (OSError, TimeoutError) as exc:
             raise TelegramApiError("Telegram is unavailable") from exc
 
-    def _dialog_record(
+    async def _dialog_record(
         self,
+        client: Any,
         dialog: Any,
         runtime: TelethonRuntime,
     ) -> dict[str, Any] | None:
@@ -218,8 +221,7 @@ class TelegramApiClient:
         if isinstance(entity, runtime.user_type):
             if getattr(entity, "is_self", False) or getattr(entity, "deleted", False):
                 return None
-            kind = "user"
-            available = True
+            return None
         elif isinstance(entity, runtime.chat_type):
             kind = "group"
             available = not getattr(entity, "left", False) and not getattr(
@@ -243,6 +245,9 @@ class TelegramApiClient:
         else:
             return None
 
+        if available and not await self._has_recent_outgoing_post(client, dialog):
+            return None
+
         peer_id = str(runtime.get_peer_id(entity))
         title = getattr(dialog, "title", None)
         if isinstance(title, str) and title.strip():
@@ -261,6 +266,26 @@ class TelegramApiClient:
             "kind": kind,
             "available": available,
         }
+
+    async def _has_recent_outgoing_post(self, client: Any, dialog: Any) -> bool:
+        async for message in client.iter_messages(
+            dialog,
+            limit=self.RECENT_POST_LOOKBACK,
+        ):
+            if self._is_recent_post_candidate(message):
+                return True
+        return False
+
+    @staticmethod
+    def _is_recent_post_candidate(message: Any) -> bool:
+        if getattr(message, "out", False) is not True:
+            return False
+        if getattr(message, "action", None) is not None:
+            return False
+        text = getattr(message, "message", None)
+        if isinstance(text, str) and text.strip():
+            return True
+        return getattr(message, "media", None) is not None
 
     def send_chat(
         self,
