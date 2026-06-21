@@ -5,6 +5,7 @@ import hmac
 import logging
 import os
 import threading
+import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
@@ -109,6 +110,11 @@ class AuthCompleteRequest(BaseModel):
 
 
 class TelegramWebContext:
+    # How long to reuse a cached dialog list before re-fetching from Telegram.
+    # Keeping this at ≥300 s dramatically reduces GetHistoryRequest flood-waits
+    # and ensures auth requests are never blocked by a slow dialog scan.
+    DIALOG_CACHE_TTL_SECONDS: float = 300.0
+
     def __init__(self, settings: TelegramSettings, web_password: str) -> None:
         self.settings = settings
         self.web_password = web_password
@@ -116,6 +122,9 @@ class TelegramWebContext:
         self._session_manager = SignedSessionManager(self.session_secret)
         self._auth_lock = threading.RLock()
         self._pending_phone_code_hash: str | None = None
+        self._dialog_cache: dict[str, ChatTarget] | None = None
+        self._dialog_cache_ts: float = 0.0
+        self._dialog_cache_lock = threading.Lock()
 
     def client(self) -> TelegramApiClient:
         return TelegramApiClient(self.settings)
@@ -131,6 +140,14 @@ class TelegramWebContext:
         return TelegramBroadcastService(self.settings, self.client(), ledger, key)
 
     def live_targets(self) -> dict[str, ChatTarget]:
+        now = time.monotonic()
+        with self._dialog_cache_lock:
+            if (
+                self._dialog_cache is not None
+                and now - self._dialog_cache_ts < self.DIALOG_CACHE_TTL_SECONDS
+            ):
+                return self._dialog_cache
+
         targets: dict[str, ChatTarget] = {}
         for dialog in self.client().list_dialogs():
             peer_id = dialog.get("id")
@@ -146,7 +163,16 @@ class TelegramWebContext:
                 continue
             alias = "t-" + hashlib.sha256(peer_id.encode()).hexdigest()[:16]
             targets[alias] = ChatTarget(alias, peer_id, name, kind)
+
+        with self._dialog_cache_lock:
+            self._dialog_cache = targets
+            self._dialog_cache_ts = time.monotonic()
         return targets
+
+    def invalidate_dialog_cache(self) -> None:
+        """Force the next live_targets() call to re-fetch from Telegram."""
+        with self._dialog_cache_lock:
+            self._dialog_cache_ts = 0.0
 
     def selected(self, aliases: list[str]) -> list[ChatTarget]:
         return select_targets(self.live_targets(), aliases, all_live=False)
@@ -213,7 +239,7 @@ def _validated_attachments(
     validated = validate_attachment_data_urls(
         attachments, error_type=TelegramBroadcastError
     )
-    attachments = [
+    validated_attachments = [
         TelegramAttachment(
             name=f"telegram-attachment-{index}{ATTACHMENT_EXTENSIONS[item.media_type]}",
             mime_type=item.media_type,
@@ -221,7 +247,7 @@ def _validated_attachments(
         )
         for index, item in enumerate(validated, start=1)
     ]
-    return attachments, tuple(item.digest for item in validated)
+    return validated_attachments, tuple(item.digest for item in validated)
 
 
 def _template_context(**extra: Any) -> dict[str, Any]:

@@ -77,10 +77,10 @@ def _telethon_runtime() -> TelethonRuntime:
 
 
 class TelegramApiClient:
-    RECENT_POST_LOOKBACK = 40
+    RECENT_POST_LOOKBACK = 15
     MIN_BROADCAST_POSTS = 2
     _SESSION_LOCK = threading.RLock()
-    _SESSION_LOCK_TIMEOUT_SECONDS = 30.0
+    _SESSION_LOCK_TIMEOUT_SECONDS = 60.0
     KIND_SORT_ORDER = {
         "channel": 0,
         "supergroup": 1,
@@ -277,8 +277,6 @@ class TelegramApiClient:
 
         if not available:
             return None
-        if not await self._has_recent_broadcast_pattern(client, dialog):
-            return None
 
         peer_id = str(runtime.get_peer_id(entity))
         title = getattr(dialog, "title", None)
@@ -393,7 +391,7 @@ class TelegramApiClient:
     def _dialog_sort_key(cls, dialog: dict[str, Any]) -> tuple[int, str]:
         kind = dialog.get("kind")
         name = dialog.get("name")
-        rank = cls.KIND_SORT_ORDER.get(kind, len(cls.KIND_SORT_ORDER))
+        rank = cls.KIND_SORT_ORDER.get(str(kind), len(cls.KIND_SORT_ORDER))
         normalized_name = name.casefold() if isinstance(name, str) else ""
         return rank, normalized_name
 
