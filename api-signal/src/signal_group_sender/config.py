@@ -140,7 +140,7 @@ class Settings:
                 base_directory,
             ),
             max_groups_per_run=_env_int(
-                "SIGNAL_MAX_GROUPS_PER_RUN", 5, minimum=1, maximum=10
+                "SIGNAL_MAX_GROUPS_PER_RUN", 5, minimum=1, maximum=50
             ),
             max_message_chars=_env_int(
                 "SIGNAL_MAX_MESSAGE_CHARS", 10_000, minimum=1, maximum=20_000

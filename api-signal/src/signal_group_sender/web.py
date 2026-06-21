@@ -59,7 +59,7 @@ IMAGE_SIGNATURES = {
 class PlanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    aliases: list[str] = Field(min_length=1, max_length=10)
+    aliases: list[str] = Field(min_length=1, max_length=50)
     message: str = Field(min_length=1, max_length=20_000)
     repeat_count: int = Field(default=1, ge=1, le=20)
     interval_seconds: int = Field(default=0, ge=0, le=86_400)
