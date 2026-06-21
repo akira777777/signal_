@@ -74,6 +74,7 @@ def _telethon_runtime() -> TelethonRuntime:
 
 class TelegramApiClient:
     RECENT_POST_LOOKBACK = 40
+    MIN_BROADCAST_POSTS = 2
     KIND_SORT_ORDER = {
         "channel": 0,
         "supergroup": 1,
@@ -237,9 +238,9 @@ class TelegramApiClient:
         elif isinstance(entity, runtime.channel_type):
             if getattr(entity, "megagroup", False):
                 kind = "supergroup"
-                available = self._is_active_supergroup(entity) and self._can_send_in_chat_now(
+                available = self._is_active_supergroup(
                     entity
-                )
+                ) and self._can_send_in_chat_now(entity)
             elif getattr(entity, "broadcast", False):
                 kind = "channel"
                 available = self._is_active_channel(entity)
@@ -251,7 +252,7 @@ class TelegramApiClient:
 
         if not available:
             return None
-        if available and not await self._has_recent_post(client, dialog):
+        if not await self._has_recent_broadcast_pattern(client, dialog):
             return None
 
         peer_id = str(runtime.get_peer_id(entity))
@@ -273,13 +274,22 @@ class TelegramApiClient:
             "available": available,
         }
 
-    async def _has_recent_post(self, client: Any, dialog: Any) -> bool:
+    async def _has_recent_broadcast_pattern(self, client: Any, dialog: Any) -> bool:
+        candidate_count = 0
+        signal_count = 0
         async for message in client.iter_messages(
             dialog,
             limit=self.RECENT_POST_LOOKBACK,
         ):
             if self._is_recent_post_candidate(message):
-                return True
+                candidate_count += 1
+                if self._has_broadcast_signal(message):
+                    signal_count += 1
+                if (
+                    candidate_count >= self.MIN_BROADCAST_POSTS
+                    and signal_count >= 1
+                ) or signal_count >= 2:
+                    return True
         return False
 
     @staticmethod
@@ -290,6 +300,24 @@ class TelegramApiClient:
         if isinstance(text, str) and text.strip():
             return True
         return getattr(message, "media", None) is not None
+
+    @staticmethod
+    def _has_broadcast_signal(message: Any) -> bool:
+        if getattr(message, "media", None) is not None:
+            return True
+        if getattr(message, "reply_markup", None) is not None:
+            return True
+        entities = getattr(message, "entities", None) or ()
+        if entities:
+            return True
+        text = getattr(message, "message", None)
+        if not isinstance(text, str):
+            return False
+        lowered = text.casefold()
+        return any(
+            token in lowered
+            for token in ("http://", "https://", "t.me/", "@", "#")
+        )
 
     @staticmethod
     def _is_active_group(entity: Any) -> bool:
