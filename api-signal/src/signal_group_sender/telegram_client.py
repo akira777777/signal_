@@ -1,43 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import io
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, TypeVar
-
-try:
-    from telethon import TelegramClient as _TelethonClient
-    from telethon.errors import RPCError as _TelethonRpcError
-    from telethon.errors import SessionPasswordNeededError as _TelethonSessionPasswordNeededError
-    from telethon.tl.types import Channel as _TelethonChannel
-    from telethon.tl.types import Chat as _TelethonChat
-    from telethon.tl.types import User as _TelethonUser
-    from telethon.utils import get_peer_id as _telethon_get_peer_id
-except ModuleNotFoundError as exc:
-    _TelethonClient = None
-
-    class _TelethonRpcError(Exception):
-        pass
-
-    class _TelethonSessionPasswordNeededError(Exception):
-        pass
-
-    class _TelethonChannel:
-        pass
-
-    class _TelethonChat:
-        pass
-
-    class _TelethonUser:
-        pass
-
-    def _telethon_get_peer_id(_: Any) -> int:
-        raise RuntimeError("Telethon is not installed")
-
-    TELETHON_IMPORT_ERROR: ModuleNotFoundError | None = exc
-else:
-    TELETHON_IMPORT_ERROR = None
 
 from signal_group_sender.telegram_config import TelegramSettings
 
@@ -67,11 +36,39 @@ class TelegramAttachment:
     content: bytes
 
 
-def _raise_missing_telethon() -> None:
-    raise TelegramApiError(
-        "Telethon is not installed. "
-        "Install project dependencies before using Telegram features."
-    ) from TELETHON_IMPORT_ERROR
+@dataclass(frozen=True, slots=True)
+class TelethonRuntime:
+    client_type: Any
+    rpc_error: type[BaseException]
+    session_password_needed_error: type[BaseException]
+    channel_type: type[Any]
+    chat_type: type[Any]
+    user_type: type[Any]
+    get_peer_id: Callable[[Any], int]
+
+
+@lru_cache(maxsize=1)
+def _telethon_runtime() -> TelethonRuntime:
+    try:
+        telethon_module = importlib.import_module("telethon")
+        errors_module = importlib.import_module("telethon.errors")
+        types_module = importlib.import_module("telethon.tl.types")
+        utils_module = importlib.import_module("telethon.utils")
+    except ModuleNotFoundError as exc:
+        raise TelegramApiError(
+            "Telethon is not installed. "
+            "Install project dependencies before using Telegram features."
+        ) from exc
+
+    return TelethonRuntime(
+        client_type=telethon_module.TelegramClient,
+        rpc_error=errors_module.RPCError,
+        session_password_needed_error=errors_module.SessionPasswordNeededError,
+        channel_type=types_module.Channel,
+        chat_type=types_module.Chat,
+        user_type=types_module.User,
+        get_peer_id=utils_module.get_peer_id,
+    )
 
 
 class TelegramApiClient:
@@ -85,10 +82,9 @@ class TelegramApiClient:
         self._client_factory = client_factory or self._default_client_factory
 
     def _default_client_factory(self) -> Any:
-        if TELETHON_IMPORT_ERROR is not None:
-            _raise_missing_telethon()
+        runtime = _telethon_runtime()
         self._settings.session_file.parent.mkdir(parents=True, exist_ok=True)
-        return _TelethonClient(
+        return runtime.client_type(
             str(self._settings.session_file),
             self._settings.api_id,
             self._settings.api_hash,
@@ -127,11 +123,12 @@ class TelegramApiClient:
         return self._run(self._request_code)
 
     async def _request_code(self, client: Any) -> str | None:
+        runtime = _telethon_runtime()
         try:
             if await client.is_user_authorized():
                 return None
             result = await client.send_code_request(self._settings.phone_number)
-        except _TelethonRpcError as exc:
+        except runtime.rpc_error as exc:
             raise TelegramApiError(f"Telegram rejected the login request: {exc}") from exc
         except (OSError, TimeoutError) as exc:
             raise TelegramApiError("Telegram did not send a login code") from exc
@@ -164,24 +161,25 @@ class TelegramApiClient:
         phone_code_hash: str,
         password: str | None,
     ) -> None:
+        runtime = _telethon_runtime()
         try:
             await client.sign_in(
                 phone=self._settings.phone_number,
                 code=code,
                 phone_code_hash=phone_code_hash,
             )
-        except _TelethonSessionPasswordNeededError as exc:
+        except runtime.session_password_needed_error as exc:
             if not password:
                 raise TelegramPasswordRequiredError(
                     "Telegram two-step verification password required"
                 ) from exc
             try:
                 await client.sign_in(password=password)
-            except _TelethonRpcError as password_exc:
+            except runtime.rpc_error as password_exc:
                 raise TelegramApiError(
                     f"Telegram rejected the two-step verification password: {password_exc}"
                 ) from password_exc
-        except _TelethonRpcError as exc:
+        except runtime.rpc_error as exc:
             raise TelegramApiError(f"Telegram rejected the login code: {exc}") from exc
         except (OSError, TimeoutError) as exc:
             raise TelegramApiError("Telegram authorization did not complete") from exc
@@ -193,38 +191,41 @@ class TelegramApiClient:
         return self._run(self._list_dialogs)
 
     async def _list_dialogs(self, client: Any) -> list[dict[str, Any]]:
+        runtime = _telethon_runtime()
         try:
             await self._ensure_authorized(client)
             dialogs: list[dict[str, Any]] = []
             async for dialog in client.iter_dialogs():
-                rendered = self._dialog_record(dialog)
+                rendered = self._dialog_record(dialog, runtime)
                 if rendered is not None:
                     dialogs.append(rendered)
             return dialogs
         except TelegramAuthRequiredError:
             raise
-        except _TelethonRpcError as exc:
+        except runtime.rpc_error as exc:
             raise TelegramApiError(f"Telegram rejected the dialog listing request: {exc}") from exc
         except (OSError, TimeoutError) as exc:
             raise TelegramApiError("Telegram is unavailable") from exc
 
-    def _dialog_record(self, dialog: Any) -> dict[str, Any] | None:
-        if TELETHON_IMPORT_ERROR is not None:
-            _raise_missing_telethon()
+    def _dialog_record(
+        self,
+        dialog: Any,
+        runtime: TelethonRuntime,
+    ) -> dict[str, Any] | None:
         entity = getattr(dialog, "entity", None)
         if entity is None:
             return None
-        if isinstance(entity, _TelethonUser):
+        if isinstance(entity, runtime.user_type):
             if getattr(entity, "is_self", False) or getattr(entity, "deleted", False):
                 return None
             kind = "user"
             available = True
-        elif isinstance(entity, _TelethonChat):
+        elif isinstance(entity, runtime.chat_type):
             kind = "group"
             available = not getattr(entity, "left", False) and not getattr(
                 entity, "deactivated", False
             )
-        elif isinstance(entity, _TelethonChannel):
+        elif isinstance(entity, runtime.channel_type):
             if getattr(entity, "megagroup", False):
                 kind = "supergroup"
                 available = not getattr(entity, "left", False)
@@ -242,7 +243,7 @@ class TelegramApiClient:
         else:
             return None
 
-        peer_id = str(_telethon_get_peer_id(entity))
+        peer_id = str(runtime.get_peer_id(entity))
         title = getattr(dialog, "title", None)
         if isinstance(title, str) and title.strip():
             name = title.strip()
@@ -285,9 +286,10 @@ class TelegramApiClient:
         message: str,
         attachments: list[TelegramAttachment] | None,
     ) -> dict[str, Any]:
+        runtime = _telethon_runtime()
         try:
             await self._ensure_authorized(client)
-            entity = await self._resolve_entity(client, peer_id)
+            entity = await self._resolve_entity(client, peer_id, runtime)
             if attachments:
                 files: list[io.BytesIO] = []
                 for attachment in attachments:
@@ -304,7 +306,7 @@ class TelegramApiClient:
                 result = await client.send_message(entity, message)
         except TelegramAuthRequiredError:
             raise
-        except _TelethonRpcError as exc:
+        except runtime.rpc_error as exc:
             raise TelegramApiError(f"Telegram rejected the send request: {exc}") from exc
         except (OSError, TimeoutError) as exc:
             raise TelegramDeliveryUncertainError(
@@ -313,11 +315,14 @@ class TelegramApiClient:
 
         return {"result": "ok", "message": bool(result)}
 
-    async def _resolve_entity(self, client: Any, peer_id: str) -> Any:
-        if TELETHON_IMPORT_ERROR is not None:
-            _raise_missing_telethon()
+    async def _resolve_entity(
+        self,
+        client: Any,
+        peer_id: str,
+        runtime: TelethonRuntime,
+    ) -> Any:
         async for dialog in client.iter_dialogs():
             entity = getattr(dialog, "entity", None)
-            if entity is not None and str(_telethon_get_peer_id(entity)) == peer_id:
+            if entity is not None and str(runtime.get_peer_id(entity)) == peer_id:
                 return entity
         raise TelegramApiError(f"Telegram chat {peer_id} is no longer visible")
