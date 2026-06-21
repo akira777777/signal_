@@ -208,16 +208,15 @@ def test_resume_skips_already_sent_target(settings: Settings) -> None:
     assert len(client.sent) == 1
 
 
-def test_plan_does_not_limit_group_count(settings: Settings) -> None:
+def test_plan_limits_group_count(settings: Settings) -> None:
     limited = replace(settings, max_groups_per_run=1)
     targets = [
         GroupTarget("ops", "group.abc="),
         GroupTarget("team", "group.def="),
     ]
 
-    plan = build_broadcast_plan(limited, targets, "hello")
-
-    assert plan.aliases == ("ops", "team")
+    with pytest.raises(BroadcastError, match="exceeds the maximum limit of 1"):
+        build_broadcast_plan(limited, targets, "hello")
 
 
 

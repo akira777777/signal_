@@ -56,6 +56,10 @@ def build_broadcast_plan(
         )
     if not targets:
         raise BroadcastError("At least one group must be selected")
+    if len(targets) > settings.max_groups_per_run:
+        raise BroadcastError(
+            f"Number of selected groups exceeds the maximum limit of {settings.max_groups_per_run}"
+        )
     if repeat_count < 1 or repeat_count > 20:
         raise BroadcastError("Repeat count must be between 1 and 20")
     if repeat_count > 1 and interval_seconds < settings.per_group_cooldown_seconds:
