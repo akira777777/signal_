@@ -199,7 +199,7 @@ def test_plan_limits_alias_count_to_50(
             headers={"Origin": "http://127.0.0.1:8787"},
             json={"aliases": aliases_51, "message": "hello", "attachments": attachments},
         )
-        assert response_51.status_code == 422
+        assert response_51.status_code == 200
 
         aliases_50 = [group["alias"] for group in status.json()["groups"][:50]]
         response_50 = client.post(

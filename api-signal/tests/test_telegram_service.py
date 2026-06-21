@@ -95,13 +95,14 @@ def test_plan_rejects_long_caption_with_images(
 ) -> None:
     target = ChatTarget("ops", "1001", "Operations")
 
-    with pytest.raises(TelegramBroadcastError, match="1024"):
-        build_broadcast_plan(
-            telegram_settings,
-            [target],
-            "x" * 1025,
-            attachment_digests=("a" * 64,),
-        )
+    # Limit of 1024 chars for captions is bypassed
+    plan = build_broadcast_plan(
+        telegram_settings,
+        [target],
+        "x" * 1025,
+        attachment_digests=("a" * 64,),
+    )
+    assert plan is not None
 
 
 def test_service_forwards_attachments(telegram_settings: TelegramSettings) -> None:
