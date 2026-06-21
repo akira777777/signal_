@@ -112,3 +112,22 @@ def test_missing_initialized_state_fails_closed(tmp_path: Path) -> None:
 
     with pytest.raises(StateError, match="missing after initialization"):
         ledger.initialize(allow_create=False)
+
+
+def test_get_records_returns_all_entries(tmp_path: Path) -> None:
+    ledger = DeliveryLedger(
+        tmp_path / "state.json",
+        integrity_key=b"k" * 32,
+        duplicate_window_seconds=3600,
+        clock=lambda: 1000.0,
+    )
+    ledger.record_attempt("one", "ops", "ops-token")
+    ledger.update_status("one", "sent")
+    ledger.record_attempt("two", "team", "team-token")
+
+    records = ledger.get_records()
+    assert len(records) == 2
+    assert records[0].fingerprint == "one"
+    assert records[0].status == "sent"
+    assert records[1].fingerprint == "two"
+    assert records[1].status == "dispatching"
