@@ -53,6 +53,13 @@ LOGGER = logging.getLogger("signal_group_sender.telegram_web")
 PACKAGE_DIRECTORY = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=PACKAGE_DIRECTORY / "templates")
 ALLOWED_ORIGINS = {"http://127.0.0.1:8788", "http://localhost:8788"}
+STATIC_ASSET_VERSION = str(
+    max(
+        (PACKAGE_DIRECTORY / "static" / "app.css").stat().st_mtime_ns,
+        (PACKAGE_DIRECTORY / "static" / "telegram_app.js").stat().st_mtime_ns,
+        (PACKAGE_DIRECTORY / "static" / "favicon.svg").stat().st_mtime_ns,
+    )
+)
 IMAGE_EXTENSIONS = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
@@ -204,6 +211,10 @@ def _validated_images(images: list[str]) -> tuple[list[TelegramAttachment], tupl
     return attachments, tuple(image.digest for image in validated)
 
 
+def _template_context(**extra: Any) -> dict[str, Any]:
+    return {"asset_version": STATIC_ASSET_VERSION, **extra}
+
+
 def create_app(
     settings: TelegramSettings | None = None,
     web_password: str | None = None,
@@ -246,13 +257,21 @@ def create_app(
     def index(request: Request, context: ContextDependency) -> Response:
         if not context.valid_session(request.cookies.get("telegram_session")):
             return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(request, "telegram_index.html")
+        return templates.TemplateResponse(
+            request,
+            "telegram_index.html",
+            _template_context(),
+        )
 
     @app.get("/login", response_class=HTMLResponse)
     def login_page(request: Request, context: ContextDependency) -> Response:
         if context.valid_session(request.cookies.get("telegram_session")):
             return RedirectResponse("/", status_code=303)
-        return templates.TemplateResponse(request, "telegram_login.html")
+        return templates.TemplateResponse(
+            request,
+            "telegram_login.html",
+            _template_context(),
+        )
 
     @app.post("/api/login")
     def login(

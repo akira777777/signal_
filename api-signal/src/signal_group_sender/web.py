@@ -49,6 +49,13 @@ LOGGER = logging.getLogger("signal_group_sender.web")
 PACKAGE_DIRECTORY = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=PACKAGE_DIRECTORY / "templates")
 ALLOWED_ORIGINS = {"http://127.0.0.1:8787", "http://localhost:8787"}
+STATIC_ASSET_VERSION = str(
+    max(
+        (PACKAGE_DIRECTORY / "static" / "app.css").stat().st_mtime_ns,
+        (PACKAGE_DIRECTORY / "static" / "app.js").stat().st_mtime_ns,
+        (PACKAGE_DIRECTORY / "static" / "favicon.svg").stat().st_mtime_ns,
+    )
+)
 
 
 class PlanRequest(BaseModel):
@@ -183,6 +190,10 @@ def _validated_images(images: list[str]) -> tuple[list[str], tuple[str, ...]]:
     )
 
 
+def _template_context(**extra: Any) -> dict[str, Any]:
+    return {"asset_version": STATIC_ASSET_VERSION, **extra}
+
+
 def create_app(
     settings: Settings | None = None,
     web_password: str | None = None,
@@ -225,13 +236,21 @@ def create_app(
     def index(request: Request, context: ContextDependency) -> Response:
         if not context.valid_session(request.cookies.get("signal_session")):
             return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(request, "index.html")
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            _template_context(),
+        )
 
     @app.get("/login", response_class=HTMLResponse)
     def login_page(request: Request, context: ContextDependency) -> Response:
         if context.valid_session(request.cookies.get("signal_session")):
             return RedirectResponse("/", status_code=303)
-        return templates.TemplateResponse(request, "login.html")
+        return templates.TemplateResponse(
+            request,
+            "login.html",
+            _template_context(),
+        )
 
     @app.post("/api/login")
     def login(
