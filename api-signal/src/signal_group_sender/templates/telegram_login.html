@@ -3,11 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Вход — Signal Панель</title>
-  <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
+  <title>Вход — Telegram Панель</title>
   <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
   <script>
-    // Injects dark theme instantly on load if chosen
     if (localStorage.getItem("theme") === "dark" || (!localStorage.getItem("theme") && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
       document.documentElement.classList.add("dark-theme");
     }
@@ -16,19 +14,16 @@
 <body class="login-page">
   <main class="login-card">
     <div class="brand login-brand">
-      <span class="brand-mark">S</span>
-      <span>Signal Панель</span>
+      <span class="brand-mark">T</span>
+      <span>Telegram Панель</span>
     </div>
     <h1>Вход в панель</h1>
-    <p>Введите локальный пароль управления рассылками.</p>
+    <p>Введите локальный пароль управления Telegram-рассылками.</p>
     <form id="login-form">
       <label class="field-label" for="password">Пароль</label>
       <input id="password" type="password" autocomplete="current-password" placeholder="••••" required autofocus>
       <div id="login-error" class="error-box hidden" role="alert"></div>
-      <button class="button primary login-button" type="submit">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right: 4px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-        Войти
-      </button>
+      <button class="button primary login-button" type="submit">Войти</button>
     </form>
   </main>
   <script>
@@ -50,7 +45,7 @@
         const payload = await response.json();
         errorBox.textContent = payload.detail || "Ошибка входа";
         errorBox.classList.remove("hidden");
-      } catch (e) {
+      } catch {
         errorBox.textContent = "Не удалось связаться с сервером";
         errorBox.classList.remove("hidden");
       }

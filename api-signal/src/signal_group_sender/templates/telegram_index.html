@@ -3,16 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Signal Панель</title>
-  <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
+  <title>Telegram Панель</title>
   <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <span class="brand-mark">S</span>
-        <span>Signal Панель</span>
+        <span class="brand-mark">T</span>
+        <span>Telegram Панель</span>
       </div>
       <nav aria-label="Основная навигация">
         <button id="nav-broadcast" class="nav-item active" type="button">
@@ -35,17 +34,17 @@
         </button>
       </nav>
       <div class="account-card">
-        <label for="account-select">Signal-аккаунт</label>
-        <select id="account-select" aria-label="Активный Signal-аккаунт"></select>
-        <button id="link-account-button" class="sidebar-button" type="button">
-          Подключить другой аккаунт
+        <label for="telegram-phone">Telegram</label>
+        <input id="telegram-phone" type="text" readonly value="—">
+        <button id="telegram-auth-button" class="sidebar-button" type="button">
+          Войти в Telegram
         </button>
       </div>
       <div class="connection-card">
         <span id="connection-dot" class="status-dot pending"></span>
         <div>
           <strong id="connection-title">Проверка</strong>
-          <span id="connection-copy">Подключение к Signal</span>
+          <span id="connection-copy">Подключение к Telegram</span>
         </div>
       </div>
     </aside>
@@ -54,13 +53,11 @@
       <header class="topbar">
         <div>
           <h1 id="view-title">Новая рассылка</h1>
-          <p id="view-subtitle">Выберите группы, проверьте сообщение и подтвердите отправку.</p>
+          <p id="view-subtitle">Выберите чаты, проверьте сообщение и подтвердите отправку.</p>
         </div>
         <div class="header-actions">
           <button id="theme-toggle" class="theme-toggle-btn" type="button" aria-label="Переключить тему">
-            <!-- Sun Icon -->
             <svg class="sun-icon" viewBox="0 0 24 24"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58c-.39-.39-1.03-.39-1.41 0s-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37c-.39-.39-1.03-.39-1.41 0s-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41l-1.06-1.06zm1.06-12.37c-.39-.39-1.02-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06c.39-.38.39-1.02 0-1.41zm-12.37 12.37c-.39-.39-1.02-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06c.39-.38.39-1.02 0-1.41z" stroke="none" fill="currentColor"/></svg>
-            <!-- Moon Icon -->
             <svg class="moon-icon hidden" viewBox="0 0 24 24"><path d="M12.3 22h-.1c-5.5 0-10-4.5-10-10 0-4.8 3.5-8.9 8.2-9.8.6-.1 1.2.3 1.3.9.1.6-.3 1.2-.9 1.3-3.6.7-6.1 3.8-6.1 7.6 0 4.4 3.6 8 8 8 3.8 0 6.9-2.5 7.6-6.1.1-.6.7-.9 1.3-.9.6.1 1 .6.9 1.2-.9 4.7-5 8.2-9.8 8.2z" stroke="none" fill="currentColor"/></svg>
           </button>
           <button id="refresh-button" class="button secondary" type="button">
@@ -70,7 +67,6 @@
         </div>
       </header>
 
-      <!-- Stats Bar Widget -->
       <div id="stats-bar" class="stats-bar">
         <div class="stat-card">
           <span class="stat-label">Отправлено за час</span>
@@ -90,12 +86,11 @@
         </div>
       </div>
 
-      <!-- Broadcast Workspace (Default View) -->
       <div id="broadcast-view" class="workspace">
-        <section class="groups-panel" aria-labelledby="groups-heading">
+        <section class="groups-panel" aria-labelledby="chats-heading">
           <div class="section-heading">
             <div>
-              <h2 id="groups-heading">Группы</h2>
+              <h2 id="chats-heading">Чаты и группы</h2>
               <span id="selection-count">0 выбрано</span>
             </div>
             <label class="select-all">
@@ -105,9 +100,9 @@
           </div>
           <label class="search">
             <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" fill="currentColor"/></svg>
-            <input id="group-search" type="search" placeholder="Поиск группы">
+            <input id="chat-search" type="search" placeholder="Поиск чата">
           </label>
-          <div id="groups-list" class="groups-list" aria-live="polite">
+          <div id="chats-list" class="groups-list" aria-live="polite">
             <div class="skeleton"></div>
             <div class="skeleton"></div>
             <div class="skeleton"></div>
@@ -122,12 +117,12 @@
             </div>
             <span id="char-count">0 символов</span>
           </div>
-          <textarea id="message" maxlength="20000" placeholder="Введите сообщение"></textarea>
+          <textarea id="message" maxlength="4096" placeholder="Введите сообщение"></textarea>
           <div class="attachments">
             <div class="attachments-heading">
               <div>
                 <strong>Изображения</strong>
-                <span>PNG, JPEG, WebP или GIF</span>
+                <span>Поддерживаются как вложения Telegram</span>
               </div>
               <label class="button secondary attachment-button" for="image-input">
                 Добавить изображения
@@ -154,7 +149,7 @@
                 <option value="3600">1 час</option>
               </select>
             </label>
-            <small>Интервал применяется после каждой завершённой отправки. Вкладка должна оставаться открытой.</small>
+            <small>Для сообщений с изображениями Telegram ограничивает подпись 1024 символами.</small>
           </div>
           <div id="countdown-box" class="countdown-box hidden">
             <div>
@@ -195,7 +190,6 @@
         </section>
       </div>
 
-      <!-- History Workspace (Hidden by Default) -->
       <div id="history-view" class="workspace hidden">
         <section class="groups-panel" style="grid-column: span 2; min-height: 480px;" aria-labelledby="history-logs-heading">
           <div class="section-heading">
@@ -208,7 +202,7 @@
             <div class="history-filter-bar">
               <label class="search">
                 <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" fill="currentColor"/></svg>
-                <input id="history-search" type="search" placeholder="Поиск по имени или токену">
+                <input id="history-search" type="search" placeholder="Поиск по alias или токену">
               </label>
               <select id="history-status-filter" aria-label="Фильтр по статусу">
                 <option value="all">Все статусы</option>
@@ -219,34 +213,29 @@
                 <option value="failed">Ошибка</option>
               </select>
             </div>
-            
             <div id="history-empty" class="empty-state">
               <div class="empty-state-icon">
                 <svg viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
               </div>
               Записей в истории пока нет.
             </div>
-            
             <div id="history-table-wrapper" class="history-table-container hidden">
               <table class="history-table">
                 <thead>
                   <tr>
                     <th>Время попытки</th>
-                    <th>Группа / Направление</th>
+                    <th>Чат</th>
                     <th>Токен адресата</th>
                     <th>Статус</th>
                   </tr>
                 </thead>
-                <tbody id="history-table-body">
-                  <!-- Rendered dynamically -->
-                </tbody>
+                <tbody id="history-table-body"></tbody>
               </table>
             </div>
           </div>
         </section>
       </div>
 
-      <!-- Campaign status panel (Fixed bottom/side display of current campaign logs) -->
       <section class="history-panel" aria-labelledby="history-heading">
         <div class="section-heading">
           <div>
@@ -268,7 +257,7 @@
   <dialog id="confirm-dialog">
     <form method="dialog">
       <h2>Подтвердить отправку</h2>
-      <p>Сообщение будет отправлено в <strong id="dialog-count">0 групп</strong>.</p>
+      <p>Сообщение будет отправлено в <strong id="dialog-count">0 чатов</strong>.</p>
       <p id="dialog-images">Без изображений.</p>
       <p id="dialog-timing">Будет выполнена одна отправка.</p>
       <div class="dialog-token">
@@ -282,23 +271,26 @@
     </form>
   </dialog>
 
-  <dialog id="account-dialog">
+  <dialog id="telegram-auth-dialog">
     <form method="dialog">
-      <h2>Подключить Signal-аккаунт</h2>
-      <p>На телефоне откройте Signal → Настройки → Связанные устройства и отсканируйте QR-код.</p>
-      <div class="qr-frame">
-        <img id="account-qr" alt="QR-код для подключения Signal-аккаунта">
+      <h2>Вход в Telegram</h2>
+      <p id="telegram-auth-copy">Отправим код на номер, указанный в `.env`.</p>
+      <label class="field-label" for="telegram-code">Код из Telegram</label>
+      <input id="telegram-code" type="text" autocomplete="one-time-code" placeholder="12345">
+      <div id="telegram-password-row" class="hidden">
+        <label class="field-label" for="telegram-password">Пароль 2FA</label>
+        <input id="telegram-password" type="password" autocomplete="current-password" placeholder="••••••">
       </div>
-      <p id="account-link-status">Ожидание сканирования…</p>
+      <div id="telegram-auth-status" class="error-box hidden" role="alert"></div>
       <div class="actions">
-        <button id="close-account-dialog" class="button secondary" value="cancel">Закрыть</button>
+        <button id="close-auth-dialog" class="button secondary" value="cancel">Закрыть</button>
+        <button id="submit-auth-button" class="button primary" type="button">Подтвердить</button>
       </div>
     </form>
   </dialog>
 
-  <!-- Toast Container -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script src="{{ url_for('static', path='/app.js') }}" defer></script>
+  <script src="{{ url_for('static', path='/telegram_app.js') }}" defer></script>
 </body>
 </html>

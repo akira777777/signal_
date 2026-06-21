@@ -121,6 +121,17 @@ def test_static_asset_is_served(settings: Settings) -> None:
     assert "--blue:" in response.text
 
 
+def test_favicon_redirects_to_static_asset(settings: Settings) -> None:
+    with TestClient(create_app(settings, "correct-horse-battery")) as client:
+        response = client.get("/favicon.ico", follow_redirects=False)
+        asset = client.get("/static/favicon.svg")
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/static/favicon.svg"
+    assert asset.status_code == 200
+    assert "<svg" in asset.text
+
+
 def test_status_lists_accounts_and_live_groups(
     settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
