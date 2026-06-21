@@ -36,7 +36,7 @@
           body: JSON.stringify({password: document.querySelector("#password").value}),
         });
         if (response.ok) {
-          location.href = "/";
+          window.location.replace(`/?login_ts=${Date.now()}`);
           return;
         }
         const payload = await response.json();

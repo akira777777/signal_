@@ -10,6 +10,8 @@ const state = {
   savedDraftSelected: null,
 };
 
+const initialStatus = window.__TELEGRAM_INITIAL_STATUS__ || null;
+
 const elements = {
   connectionDot: document.querySelector("#connection-dot"),
   connectionTitle: document.querySelector("#connection-title"),
@@ -252,6 +254,18 @@ async function loadStatus() {
   showError();
   try {
     const payload = await api("/api/status");
+    applyStatusPayload(payload);
+  } catch (error) {
+    elements.connectionDot.className = "status-dot error";
+    elements.connectionTitle.textContent = "Ошибка";
+    elements.connectionCopy.textContent = error.message;
+    showError(error.message);
+  } finally {
+    elements.refresh.disabled = false;
+  }
+}
+
+function applyStatusPayload(payload) {
     state.phone = payload.phone || "";
     state.authorized = payload.authorized === true;
     state.chats = (payload.chats || []).map((chat) => ({...chat, available: chat.available !== false}));
@@ -286,14 +300,6 @@ async function loadStatus() {
     elements.connectionCopy.textContent = payload.message || "—";
     renderChats();
     updateSelection();
-  } catch (error) {
-    elements.connectionDot.className = "status-dot error";
-    elements.connectionTitle.textContent = "Ошибка";
-    elements.connectionCopy.textContent = error.message;
-    showError(error.message);
-  } finally {
-    elements.refresh.disabled = false;
-  }
 }
 
 async function createPlan() {
@@ -691,6 +697,37 @@ function stopHistoryAutoRefresh() {
   }
 }
 
+function needsStatusHydration() {
+  return state.phone === "" || elements.connectionTitle.textContent === "Проверка";
+}
+
+async function hydrateStatus(retries = 4, delayMs = 500) {
+  let lastError = null;
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    try {
+      await loadStatus();
+      if (!needsStatusHydration()) {
+        return;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < retries - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  if (lastError) {
+    console.error("Telegram status hydration failed:", lastError);
+  }
+}
+
+function refreshDashboard() {
+  hydrateStatus().catch((error) => {
+    console.error("Telegram status bootstrap failed:", error);
+  });
+  loadStats().catch(() => {});
+}
+
 elements.refresh.addEventListener("click", () => {
   loadStatus().catch(() => {});
   if (!elements.historyView.classList.contains("hidden")) {
@@ -768,6 +805,13 @@ document.addEventListener("keydown", (event) => {
 
 initTheme();
 restoreDraft();
-loadStatus().catch(() => {});
-loadStats().catch(() => {});
+if (initialStatus) {
+  applyStatusPayload(initialStatus);
+}
+refreshDashboard();
+window.addEventListener("pageshow", () => {
+  if (needsStatusHydration()) {
+    refreshDashboard();
+  }
+});
 startHistoryAutoRefresh();

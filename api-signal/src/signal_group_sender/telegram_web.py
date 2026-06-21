@@ -228,6 +228,35 @@ def _template_context(**extra: Any) -> dict[str, Any]:
     return {"asset_version": STATIC_ASSET_VERSION, **extra}
 
 
+def _status_payload(context: TelegramWebContext) -> dict[str, Any]:
+    try:
+        authorized = context.is_authorized()
+        targets = context.live_targets() if authorized else {}
+    except TelegramApiError as exc:
+        return {
+            "connected": False,
+            "authorized": False,
+            "message": str(exc),
+            "phone": context.settings.phone_number,
+            "chats": [],
+        }
+    if not authorized:
+        return {
+            "connected": True,
+            "authorized": False,
+            "message": f"Нужен вход в Telegram: {context.settings.phone_number}",
+            "phone": context.settings.phone_number,
+            "chats": [],
+        }
+    return {
+        "connected": True,
+        "authorized": True,
+        "message": f"Telegram подключён: {context.settings.phone_number}",
+        "phone": context.settings.phone_number,
+        "chats": [_chat_view(target) for target in targets.values()],
+    }
+
+
 def create_app(
     settings: TelegramSettings | None = None,
     web_password: str | None = None,
@@ -275,7 +304,7 @@ def create_app(
         return templates.TemplateResponse(
             request,
             "telegram_index.html",
-            _template_context(),
+            _template_context(initial_status=_status_payload(context)),
         )
 
     @app.get("/login", response_class=HTMLResponse)
@@ -316,32 +345,7 @@ def create_app(
 
     @app.get("/api/status")
     def status(context: ContextDependency, _: AuthDependency) -> dict[str, Any]:
-        try:
-            authorized = context.is_authorized()
-            targets = context.live_targets() if authorized else {}
-        except TelegramApiError as exc:
-            return {
-                "connected": False,
-                "authorized": False,
-                "message": str(exc),
-                "phone": context.settings.phone_number,
-                "chats": [],
-            }
-        if not authorized:
-            return {
-                "connected": True,
-                "authorized": False,
-                "message": f"Нужен вход в Telegram: {context.settings.phone_number}",
-                "phone": context.settings.phone_number,
-                "chats": [],
-            }
-        return {
-            "connected": True,
-            "authorized": True,
-            "message": f"Telegram подключён: {context.settings.phone_number}",
-            "phone": context.settings.phone_number,
-            "chats": [_chat_view(target) for target in targets.values()],
-        }
+        return _status_payload(context)
 
     @app.get("/api/history")
     def get_history(

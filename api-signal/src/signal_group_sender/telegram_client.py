@@ -4,11 +4,15 @@ import asyncio
 import importlib
 import io
 import math
+import threading
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, TypeVar
 
+from signal_group_sender.locking import AlreadyRunningError, RunLock
 from signal_group_sender.telegram_config import TelegramSettings
 
 T = TypeVar("T")
@@ -75,6 +79,8 @@ def _telethon_runtime() -> TelethonRuntime:
 class TelegramApiClient:
     RECENT_POST_LOOKBACK = 40
     MIN_BROADCAST_POSTS = 2
+    _SESSION_LOCK = threading.RLock()
+    _SESSION_LOCK_TIMEOUT_SECONDS = 30.0
     KIND_SORT_ORDER = {
         "channel": 0,
         "supergroup": 1,
@@ -102,8 +108,27 @@ class TelegramApiClient:
             app_version="0.1",
         )
 
+    def _session_lock_path(self) -> Path:
+        return self._settings.session_file.with_name(
+            f"{self._settings.session_file.name}.lock"
+        )
+
     def _run(self, operation: Callable[[Any], Awaitable[T]]) -> T:
-        return asyncio.run(self._with_client(operation))
+        # Telethon persists auth state in a shared SQLite session file.
+        # Serializing access inside the process prevents "database is locked"
+        # when status polling overlaps with login or send flows.
+        with self._SESSION_LOCK:
+            deadline = time.monotonic() + self._SESSION_LOCK_TIMEOUT_SECONDS
+            while True:
+                try:
+                    with RunLock(self._session_lock_path()):
+                        return asyncio.run(self._with_client(operation))
+                except AlreadyRunningError as exc:
+                    if time.monotonic() >= deadline:
+                        raise TelegramApiError(
+                            "Telegram session is busy. Retry in a few seconds."
+                        ) from exc
+                    time.sleep(0.2)
 
     async def _with_client(self, operation: Callable[[Any], Awaitable[T]]) -> T:
         client = self._client_factory()
