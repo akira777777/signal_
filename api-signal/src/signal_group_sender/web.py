@@ -5,13 +5,19 @@ import hashlib
 import hmac
 import logging
 import os
+import subprocess
+import sys
 import threading
+import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Annotated, Any, cast
+from urllib.parse import urlparse
 
+import requests
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -39,12 +45,12 @@ from signal_group_sender.state import (
     load_or_create_hmac_key,
 )
 from signal_group_sender.web_common import (
-    MAX_IMAGE_DATA_URL_CHARS,
+    MAX_ATTACHMENT_DATA_URL_CHARS,
     SignedSessionManager,
     allowed_origins_from_env,
     require_json_same_origin,
     trusted_hosts_from_env,
-    validate_image_data_urls,
+    validate_attachment_data_urls,
 )
 
 LOGGER = logging.getLogger("signal_group_sender.web")
@@ -70,7 +76,9 @@ class PlanRequest(BaseModel):
     message: str = Field(min_length=1, max_length=20_000)
     repeat_count: int = Field(default=1, ge=1, le=20)
     interval_seconds: int = Field(default=0, ge=0, le=86_400)
-    images: list[Annotated[str, Field(max_length=MAX_IMAGE_DATA_URL_CHARS)]] = Field(
+    attachments: list[
+        Annotated[str, Field(max_length=MAX_ATTACHMENT_DATA_URL_CHARS)]
+    ] = Field(
         default_factory=list,
     )
 
@@ -188,18 +196,96 @@ def _group_view(target: GroupTarget, available: set[str]) -> dict[str, Any]:
     }
 
 
-def _validated_images(images: list[str]) -> tuple[list[str], tuple[str, ...]]:
-    validated = validate_image_data_urls(images, error_type=BroadcastError)
-    return [image.data_url for image in validated], tuple(
-        image.digest for image in validated
+def _validated_attachments(
+    attachments: list[str],
+) -> tuple[list[str], tuple[str, ...]]:
+    validated = validate_attachment_data_urls(
+        attachments, error_type=BroadcastError
+    )
+    return [attachment.data_url for attachment in validated], tuple(
+        attachment.digest for attachment in validated
     )
 
 
+def _telegram_panel_url() -> str:
+    url = os.getenv("TELEGRAM_PANEL_URL", "http://127.0.0.1:8788/").strip()
+    return url.rstrip("/") + "/"
+
+
+def _telegram_panel_probe_url(panel_url: str) -> str:
+    return panel_url.rstrip("/") + "/login"
+
+
+def _is_local_panel_url(panel_url: str) -> bool:
+    parsed = urlparse(panel_url)
+    return parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}
+
+
+def _telegram_panel_status() -> dict[str, Any]:
+    panel_url = _telegram_panel_url()
+    available = False
+    message = "Telegram-панель не отвечает."
+    try:
+        response = requests.get(
+            _telegram_panel_probe_url(panel_url),
+            timeout=1.5,
+            allow_redirects=False,
+        )
+        available = response.status_code < 500
+        if available:
+            message = "Telegram-панель доступна."
+    except requests.RequestException:
+        available = False
+    return {
+        "available": available,
+        "local": _is_local_panel_url(panel_url),
+        "url": panel_url,
+        "message": message,
+    }
+
+
+def _start_local_telegram_panel() -> dict[str, Any]:
+    status = _telegram_panel_status()
+    if status["available"]:
+        status["started"] = False
+        return status
+    if not status["local"]:
+        raise BroadcastError("Telegram-панель можно запускать только для localhost")
+
+    parsed = urlparse(status["url"])
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 8788
+    project_root = PACKAGE_DIRECTORY.parents[1]
+    subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "signal_group_sender.telegram_web:app",
+            "--host",
+            host,
+            "--port",
+            str(port),
+        ],
+        cwd=project_root,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    for _ in range(20):
+        time.sleep(0.25)
+        status = _telegram_panel_status()
+        if status["available"]:
+            status["started"] = True
+            return status
+    raise BroadcastError("Telegram-панель не успела запуститься")
+
+
 def _template_context(**extra: Any) -> dict[str, Any]:
-    telegram_panel_url = os.getenv("TELEGRAM_PANEL_URL", "http://127.0.0.1:8788/")
+    telegram_panel_url = _telegram_panel_url()
     return {
         "asset_version": STATIC_ASSET_VERSION,
-        "telegram_panel_url": telegram_panel_url.rstrip("/") + "/",
+        "telegram_panel_url": telegram_panel_url,
         **extra,
     }
 
@@ -210,13 +296,15 @@ def create_app(
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> Any:
+        env_file = Path(".env")
+        load_dotenv(dotenv_path=env_file, override=False)
         password = web_password if web_password is not None else os.getenv(
             "SIGNAL_WEB_PASSWORD", ""
         )
         if len(password) < 4:
             raise ConfigError("SIGNAL_WEB_PASSWORD must contain at least 4 characters")
         app.state.context = WebContext(
-            settings or Settings.from_env(Path(".env")),
+            settings or Settings.from_env(env_file),
             password,
         )
         yield
@@ -334,6 +422,17 @@ def create_app(
     ) -> dict[str, Any]:
         return context.service().get_stats()
 
+    @app.get("/api/telegram-panel/status")
+    def telegram_panel_status(_: AuthDependency) -> dict[str, Any]:
+        return _telegram_panel_status()
+
+    @app.post("/api/telegram-panel/start")
+    def start_telegram_panel(
+        _: OriginDependency,
+        __: AuthDependency,
+    ) -> dict[str, Any]:
+        return _start_local_telegram_panel()
+
     @app.post("/api/accounts/select")
     def select_account(
         payload: AccountRequest,
@@ -362,8 +461,10 @@ def create_app(
         __: AuthDependency,
     ) -> dict[str, Any]:
         targets = context.selected(payload.aliases)
-        validated_images, attachment_digests = _validated_images(payload.images)
-        del validated_images
+        validated_attachments, attachment_digests = _validated_attachments(
+            payload.attachments
+        )
+        del validated_attachments
         plan_result = build_broadcast_plan(
             context.settings,
             targets,
@@ -380,7 +481,7 @@ def create_app(
             "confirm_token": plan_result.confirm_token,
             "repeat_count": payload.repeat_count,
             "interval_seconds": payload.interval_seconds,
-            "image_count": len(attachment_digests),
+            "attachment_count": len(attachment_digests),
         }
 
     @app.post("/api/send")
@@ -391,7 +492,9 @@ def create_app(
         __: AuthDependency,
     ) -> dict[str, Any]:
         targets = context.selected(payload.aliases)
-        images, attachment_digests = _validated_images(payload.images)
+        attachments, attachment_digests = _validated_attachments(
+            payload.attachments
+        )
         with RunLock(context.settings.lock_file):
             results = context.service().send(
                 targets,
@@ -402,7 +505,7 @@ def create_app(
                 repeat_count=payload.repeat_count,
                 interval_seconds=payload.interval_seconds,
                 delivery_scope=f"{payload.confirm_token}:{payload.round_index}",
-                base64_attachments=images,
+                base64_attachments=attachments,
                 attachment_digests=attachment_digests,
             )
         return {

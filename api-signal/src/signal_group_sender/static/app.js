@@ -5,7 +5,7 @@ const state = {
   plan: null,
   campaign: null,
   accountPoll: null,
-  images: [],
+  attachments: [],
   history: [],
   savedDraftSelected: null,
 };
@@ -25,14 +25,14 @@ const elements = {
   list: document.querySelector("#groups-list"),
   selectionCount: document.querySelector("#selection-count"),
   message: document.querySelector("#message"),
-  imageInput: document.querySelector("#image-input"),
-  imagePreviews: document.querySelector("#image-previews"),
+  attachmentInput: document.querySelector("#attachment-input"),
+  attachmentPreviews: document.querySelector("#attachment-previews"),
   repeatCount: document.querySelector("#repeat-count"),
   intervalSelect: document.querySelector("#interval-select"),
   charCount: document.querySelector("#char-count"),
   planBox: document.querySelector("#plan-box"),
   planGroups: document.querySelector("#plan-groups"),
-  planImages: document.querySelector("#plan-images"),
+  planAttachments: document.querySelector("#plan-attachments"),
   confirmToken: document.querySelector("#confirm-token"),
   planButton: document.querySelector("#plan-button"),
   sendButton: document.querySelector("#send-button"),
@@ -44,7 +44,7 @@ const elements = {
   dialogToken: document.querySelector("#dialog-token"),
   confirmSendButton: document.querySelector("#confirm-send-button"),
   dialogTiming: document.querySelector("#dialog-timing"),
-  dialogImages: document.querySelector("#dialog-images"),
+  dialogAttachments: document.querySelector("#dialog-attachments"),
   logoutButton: document.querySelector("#logout-button"),
   countdownBox: document.querySelector("#countdown-box"),
   countdownLabel: document.querySelector("#countdown-label"),
@@ -75,6 +75,11 @@ const elements = {
   statDaily: document.querySelector("#stat-daily"),
   statSuccess: document.querySelector("#stat-success"),
   statRemaining: document.querySelector("#stat-remaining"),
+  telegramFrame: document.querySelector("#telegram-frame"),
+  telegramFrameFallback: document.querySelector("#telegram-frame-fallback"),
+  telegramFrameTitle: document.querySelector("#telegram-frame-title"),
+  telegramFrameStatus: document.querySelector("#telegram-frame-status"),
+  telegramLaunchButton: document.querySelector("#telegram-launch-button"),
 };
 
 function escapeHtml(value) {
@@ -151,43 +156,50 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
 }
 
-function renderImages() {
-  elements.imagePreviews.classList.toggle("hidden", state.images.length === 0);
-  elements.imagePreviews.innerHTML = state.images.map((image, index) => `
+function renderAttachmentPreview(attachment) {
+  if (attachment.type === "video/mp4") {
+    return `<video src="${attachment.dataUrl}" muted playsinline preload="metadata"></video>`;
+  }
+  return `<img src="${attachment.dataUrl}" alt="">`;
+}
+
+function renderAttachments() {
+  elements.attachmentPreviews.classList.toggle("hidden", state.attachments.length === 0);
+  elements.attachmentPreviews.innerHTML = state.attachments.map((attachment, index) => `
     <div class="image-preview">
-      <img src="${image.dataUrl}" alt="">
+      ${renderAttachmentPreview(attachment)}
       <div>
-        <strong>${escapeHtml(image.name)}</strong>
-        <span>${formatBytes(image.size)}</span>
+        <strong>${escapeHtml(attachment.name)}</strong>
+        <span>${formatBytes(attachment.size)}</span>
       </div>
-      <button type="button" data-remove-image="${index}"
-        aria-label="Удалить изображение">×</button>
+      <button type="button" data-remove-attachment="${index}"
+        aria-label="Удалить вложение">×</button>
     </div>
   `).join("");
-  elements.imagePreviews.querySelectorAll("[data-remove-image]").forEach((button) => {
+  elements.attachmentPreviews.querySelectorAll("[data-remove-attachment]").forEach((button) => {
     button.addEventListener("click", () => {
-      state.images.splice(Number(button.dataset.removeImage), 1);
-      renderImages();
+      state.attachments.splice(Number(button.dataset.removeAttachment), 1);
+      renderAttachments();
       updateSelection();
     });
   });
 }
 
-async function addImages(files) {
+async function addAttachments(files) {
   showError();
-  const allowed = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
-  const total = state.images.reduce((sum, image) => sum + image.size, 0)
+  const allowed = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "video/mp4"]);
+  const total = state.attachments.reduce((sum, attachment) => sum + attachment.size, 0)
     + files.reduce((sum, file) => sum + file.size, 0);
   if (files.some((file) => !allowed.has(file.type))) {
-    showError("Разрешены только PNG, JPEG, WebP и GIF.");
+    showError("Разрешены только PNG, JPEG, WebP, GIF и MP4.");
     return;
   }
   if (files.some((file) => file.size === 0 || file.size > 8 * 1024 * 1024)) {
-    showError("Размер каждого изображения должен быть не более 8 МБ.");
+    showError("Размер каждого вложения должен быть не более 8 МБ.");
     return;
   }
   if (total > 20 * 1024 * 1024) {
-    showError("Суммарный размер изображений не должен превышать 20 МБ.");
+    showError("Суммарный размер вложений не должен превышать 20 МБ.");
     return;
   }
   const additions = await Promise.all(files.map((file) => new Promise((resolve, reject) => {
@@ -195,13 +207,14 @@ async function addImages(files) {
     reader.onload = () => resolve({
       name: file.name,
       size: file.size,
+      type: file.type,
       dataUrl: reader.result,
     });
     reader.onerror = () => reject(new Error(`Не удалось прочитать ${file.name}`));
     reader.readAsDataURL(file);
   })));
-  state.images.push(...additions);
-  renderImages();
+  state.attachments.push(...additions);
+  renderAttachments();
   updateSelection();
 }
 
@@ -299,7 +312,7 @@ async function createPlan() {
       body: JSON.stringify({
         aliases: [...state.selected],
         message: elements.message.value,
-        images: state.images.map((image) => image.dataUrl),
+        attachments: state.attachments.map((attachment) => attachment.dataUrl),
         ...campaignOptions(),
       }),
     });
@@ -307,7 +320,7 @@ async function createPlan() {
       pluralize(state.plan.group_count, "группа", "группы", "групп")
     } × ${state.plan.repeat_count}`;
     elements.confirmToken.textContent = state.plan.confirm_token;
-    elements.planImages.textContent = String(state.plan.image_count);
+    elements.planAttachments.textContent = String(state.plan.attachment_count);
     elements.planBox.classList.remove("hidden");
     elements.sendButton.textContent =
       state.plan.repeat_count > 1
@@ -377,8 +390,8 @@ function waitInterval(seconds, nextRound) {
 
 function setCampaignControls(disabled) {
   elements.message.disabled = disabled;
-  elements.imageInput.disabled = disabled;
-  elements.imagePreviews.querySelectorAll("button").forEach((button) => {
+  elements.attachmentInput.disabled = disabled;
+  elements.attachmentPreviews.querySelectorAll("button").forEach((button) => {
     button.disabled = disabled;
   });
   elements.repeatCount.disabled = disabled;
@@ -404,7 +417,7 @@ async function runCampaign() {
         body: JSON.stringify({
           aliases: [...state.selected],
           message: elements.message.value,
-          images: state.images.map((image) => image.dataUrl),
+          attachments: state.attachments.map((attachment) => attachment.dataUrl),
           confirm_token: state.plan.confirm_token,
           retry_unknown: false,
           repeat_count: state.plan.repeat_count,
@@ -576,6 +589,73 @@ async function loadStats() {
   } catch { /* silently ignore on stats failure */ }
 }
 
+function renderTelegramPanelState(payload) {
+  const available = Boolean(payload?.available);
+  const local = Boolean(payload?.local);
+  const url = payload?.url || "http://127.0.0.1:8788/";
+
+  elements.telegramFrame.classList.toggle("hidden", !available);
+  elements.telegramFrameFallback.classList.toggle("hidden", available);
+
+  if (available) {
+    if (elements.telegramFrame.dataset.loadedUrl !== url) {
+      elements.telegramFrame.src = url;
+      elements.telegramFrame.dataset.loadedUrl = url;
+    }
+    return;
+  }
+
+  elements.telegramFrame.removeAttribute("src");
+  elements.telegramFrame.removeAttribute("data-loaded-url");
+  elements.telegramFrameTitle.textContent = local
+    ? "Telegram-панель пока не запущена"
+    : "Telegram-панель недоступна";
+  elements.telegramFrameStatus.textContent = payload?.message
+    || (local
+      ? `Можно поднять локальную панель и сразу загрузить её здесь: ${url}`
+      : `Откройте Telegram отдельно по адресу ${url}`);
+  elements.telegramLaunchButton.classList.toggle("hidden", !local);
+  elements.telegramLaunchButton.disabled = false;
+}
+
+async function loadTelegramPanelStatus() {
+  try {
+    const payload = await api("/api/telegram-panel/status");
+    renderTelegramPanelState(payload);
+    return payload;
+  } catch (error) {
+    renderTelegramPanelState({
+      available: false,
+      local: true,
+      message: error.message,
+    });
+    throw error;
+  }
+}
+
+async function startTelegramPanel() {
+  elements.telegramLaunchButton.disabled = true;
+  elements.telegramFrameTitle.textContent = "Запускаем Telegram-панель";
+  elements.telegramFrameStatus.textContent = "Поднимаем локальный сервер и ждём, пока iframe станет доступен.";
+  try {
+    const payload = await api("/api/telegram-panel/start", {
+      method: "POST",
+      body: "{}",
+    });
+    renderTelegramPanelState(payload);
+    showToast("Telegram-панель запущена", "success");
+  } catch (error) {
+    renderTelegramPanelState({
+      available: false,
+      local: true,
+      message: error.message,
+    });
+    showToast(error.message, "error");
+  } finally {
+    elements.telegramLaunchButton.disabled = false;
+  }
+}
+
 /* 2. View Switcher System */
 function switchView(viewName) {
   if (viewName === "broadcast") {
@@ -709,13 +789,13 @@ elements.message.addEventListener("input", () => {
   elements.charCount.textContent = `${elements.message.value.length} символов`;
   updateSelection();
 });
-elements.imageInput.addEventListener("change", async () => {
+elements.attachmentInput.addEventListener("change", async () => {
   try {
-    await addImages([...elements.imageInput.files]);
+    await addAttachments([...elements.attachmentInput.files]);
   } catch (error) {
     showError(error.message);
   } finally {
-    elements.imageInput.value = "";
+    elements.attachmentInput.value = "";
   }
 });
 elements.repeatCount.addEventListener("change", updateSelection);
@@ -728,11 +808,11 @@ elements.sendButton.addEventListener("click", () => {
     pluralize(state.plan.repeat_count, "цикл", "цикла", "циклов")
   }`;
   elements.dialogToken.textContent = state.plan.confirm_token;
-  elements.dialogImages.textContent = state.plan.image_count
-    ? `${state.plan.image_count} ${
-      pluralize(state.plan.image_count, "изображение", "изображения", "изображений")
+  elements.dialogAttachments.textContent = state.plan.attachment_count
+    ? `${state.plan.attachment_count} ${
+      pluralize(state.plan.attachment_count, "вложение", "вложения", "вложений")
     }.`
-    : "Без изображений.";
+    : "Без вложений.";
   elements.dialogTiming.textContent = state.plan.repeat_count > 1
     ? `Между циклами: ${elements.intervalSelect.selectedOptions[0].textContent}.`
     : "Будет выполнена одна отправка.";
@@ -765,6 +845,9 @@ elements.navBroadcast.addEventListener("click", () => switchView("broadcast"));
 elements.navHistory.addEventListener("click", () => switchView("history"));
 elements.historySearch.addEventListener("input", renderHistory);
 elements.historyStatusFilter.addEventListener("change", renderHistory);
+elements.telegramLaunchButton.addEventListener("click", () => {
+  startTelegramPanel().catch(() => {});
+});
 
 // Keyboard shortcuts
 document.addEventListener("keydown", (event) => {
@@ -805,4 +888,5 @@ initTheme();
 restoreDraft();
 loadStatus().catch(() => {});
 loadStats().catch(() => {});
+loadTelegramPanelStatus().catch(() => {});
 startHistoryAutoRefresh();

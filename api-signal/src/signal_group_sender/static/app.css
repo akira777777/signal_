@@ -257,12 +257,47 @@ h2 { font-family: "Aptos Display", "Segoe UI Variable Display", "Trebuchet MS", 
 }
 
 .telegram-frame-shell {
+  position: relative;
   min-height: 860px;
   overflow: hidden;
   border: 1px solid var(--glass-border);
   border-radius: 18px;
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.04), rgba(15, 23, 42, 0.02));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.telegram-frame-fallback {
+  min-height: 860px;
+  padding: 28px;
+  display: grid;
+  align-content: center;
+  gap: 18px;
+  background:
+    radial-gradient(circle at top, rgba(56, 189, 248, 0.12), transparent 36%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.02));
+}
+
+.telegram-frame-copy {
+  max-width: 360px;
+}
+
+.telegram-frame-copy strong {
+  display: block;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.telegram-frame-copy p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.telegram-frame-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .telegram-frame {
@@ -347,7 +382,8 @@ textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(59, 130, 
   align-items: center; gap: 12px; border: 1px solid var(--border); border-radius: 12px;
   background: var(--surface); transition: all 0.2s ease;
 }
-.image-preview img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; background: var(--surface-card); }
+.image-preview img,
+.image-preview video { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; background: var(--surface-card); }
 .image-preview strong, .image-preview span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .image-preview strong { font-size: 13px; font-weight: 600; }
 .image-preview span { margin-top: 4px; color: var(--muted); font-size: 11px; }

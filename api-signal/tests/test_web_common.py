@@ -11,7 +11,7 @@ from signal_group_sender.web_common import (
     allowed_origins_from_env,
     require_json_same_origin,
     trusted_hosts_from_env,
-    validate_image_data_urls,
+    validate_attachment_data_urls,
 )
 
 
@@ -104,10 +104,10 @@ def test_vercel_env_adds_trusted_host_and_origin(monkeypatch: pytest.MonkeyPatch
     )
 
 
-def test_validate_image_data_urls_returns_digest_and_data_url() -> None:
+def test_validate_attachment_data_urls_returns_digest_and_data_url() -> None:
     encoded = base64.b64encode(b"\x89PNG\r\n\x1a\npayload").decode()
 
-    validated = validate_image_data_urls(
+    validated = validate_attachment_data_urls(
         [f"data:image/png;base64,{encoded}"],
         error_type=RuntimeError,
     )
@@ -116,11 +116,23 @@ def test_validate_image_data_urls_returns_digest_and_data_url() -> None:
     assert len(validated[0].digest) == 64
 
 
-def test_validate_image_data_urls_rejects_signature_mismatch() -> None:
+def test_validate_attachment_data_urls_accepts_mp4() -> None:
+    encoded = base64.b64encode(b"\x00\x00\x00\x18ftypmp42payload").decode()
+
+    validated = validate_attachment_data_urls(
+        [f"data:video/mp4;base64,{encoded}"],
+        error_type=RuntimeError,
+    )
+
+    assert validated[0].data_url == f"data:video/mp4;base64,{encoded}"
+    assert len(validated[0].digest) == 64
+
+
+def test_validate_attachment_data_urls_rejects_signature_mismatch() -> None:
     encoded = base64.b64encode(b"not a png").decode()
 
     with pytest.raises(RuntimeError, match="does not match"):
-        validate_image_data_urls(
+        validate_attachment_data_urls(
             [f"data:image/png;base64,{encoded}"],
             error_type=RuntimeError,
         )

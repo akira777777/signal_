@@ -136,15 +136,15 @@
               <div class="attachments">
                 <div class="attachments-heading">
                   <div>
-                    <strong>Изображения</strong>
-                    <span>PNG, JPEG, WebP или GIF</span>
+                    <strong>Вложения</strong>
+                    <span>PNG, JPEG, WebP, GIF или MP4</span>
                   </div>
-                  <label class="button secondary attachment-button" for="image-input">
-                    Добавить изображения
+                  <label class="button secondary attachment-button" for="attachment-input">
+                    Добавить вложения
                   </label>
-                  <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+                  <input id="attachment-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4" multiple hidden>
                 </div>
-                <div id="image-previews" class="image-previews hidden"></div>
+                <div id="attachment-previews" class="image-previews hidden"></div>
               </div>
               <div class="repeat-row">
                 <label for="repeat-count">
@@ -188,8 +188,8 @@
                   <strong id="plan-groups">—</strong>
                 </div>
                 <div>
-                  <span>Изображения</span>
-                  <strong id="plan-images">0</strong>
+                  <span>Вложения</span>
+                  <strong id="plan-attachments">0</strong>
                 </div>
                 <div>
                   <span>Код подтверждения</span>
@@ -291,7 +291,27 @@
               <div class="tip-chip">Авторизация Telegram остаётся изолированной</div>
             </div>
             <div class="telegram-frame-shell">
+              <div id="telegram-frame-fallback" class="telegram-frame-fallback">
+                <div class="telegram-frame-copy">
+                  <strong id="telegram-frame-title">Проверяем панель Telegram</strong>
+                  <p id="telegram-frame-status">
+                    Смотрим, доступна ли локальная панель по адресу {{ telegram_panel_url }}.
+                  </p>
+                </div>
+                <div class="telegram-frame-actions">
+                  <button
+                    id="telegram-launch-button"
+                    class="button primary"
+                    type="button">
+                    Запустить Telegram
+                  </button>
+                  <a class="button secondary" href="{{ telegram_panel_url }}" target="_blank" rel="noreferrer">
+                    Открыть отдельно
+                  </a>
+                </div>
+              </div>
               <iframe
+                id="telegram-frame"
                 class="telegram-frame"
                 src="{{ telegram_panel_url }}"
                 title="Telegram Панель"
@@ -308,7 +328,7 @@
     <form method="dialog">
       <h2>Подтвердить отправку</h2>
       <p>Сообщение будет отправлено в <strong id="dialog-count">0 групп</strong>.</p>
-      <p id="dialog-images">Без изображений.</p>
+      <p id="dialog-attachments">Без вложений.</p>
       <p id="dialog-timing">Будет выполнена одна отправка.</p>
       <div class="dialog-token">
         <span>Код</span>

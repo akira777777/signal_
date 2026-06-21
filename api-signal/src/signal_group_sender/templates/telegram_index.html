@@ -122,15 +122,15 @@
           <div class="attachments">
             <div class="attachments-heading">
               <div>
-                <strong>Изображения</strong>
-                <span>Поддерживаются как вложения Telegram</span>
+                <strong>Вложения</strong>
+                <span>PNG, JPEG, WebP, GIF или MP4</span>
               </div>
-              <label class="button secondary attachment-button" for="image-input">
-                Добавить изображения
+              <label class="button secondary attachment-button" for="attachment-input">
+                Добавить вложения
               </label>
-              <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+              <input id="attachment-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4" multiple hidden>
             </div>
-            <div id="image-previews" class="image-previews hidden"></div>
+            <div id="attachment-previews" class="image-previews hidden"></div>
           </div>
           <div class="repeat-row">
             <label for="repeat-count">
@@ -150,7 +150,7 @@
                 <option value="3600">1 час</option>
               </select>
             </label>
-            <small>Для сообщений с изображениями Telegram ограничивает подпись 1024 символами.</small>
+            <small>Для сообщений с вложениями Telegram ограничивает подпись 1024 символами.</small>
           </div>
           <div id="countdown-box" class="countdown-box hidden">
             <div>
@@ -174,8 +174,8 @@
               <strong id="plan-groups">—</strong>
             </div>
             <div>
-              <span>Изображения</span>
-              <strong id="plan-images">0</strong>
+              <span>Вложения</span>
+              <strong id="plan-attachments">0</strong>
             </div>
             <div>
               <span>Код подтверждения</span>
@@ -259,7 +259,7 @@
     <form method="dialog">
       <h2>Подтвердить отправку</h2>
       <p>Сообщение будет отправлено в <strong id="dialog-count">0 чатов</strong>.</p>
-      <p id="dialog-images">Без изображений.</p>
+      <p id="dialog-attachments">Без вложений.</p>
       <p id="dialog-timing">Будет выполнена одна отправка.</p>
       <div class="dialog-token">
         <span>Код</span>

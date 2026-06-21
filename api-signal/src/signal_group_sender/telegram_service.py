@@ -57,7 +57,7 @@ def build_broadcast_plan(
         )
     if attachment_digests and len(message) > 1024:
         raise TelegramBroadcastError(
-            "Telegram captions with images must not exceed 1024 characters"
+            "Telegram captions with attachments must not exceed 1024 characters"
         )
     if not targets:
         raise TelegramBroadcastError("At least one chat must be selected")

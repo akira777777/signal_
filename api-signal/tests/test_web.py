@@ -9,7 +9,8 @@ from signal_group_sender.client import SignalApiClient
 from signal_group_sender.config import Settings
 from signal_group_sender.service import BroadcastError, BroadcastService
 from signal_group_sender.state import DeliveryRecord
-from signal_group_sender.web import _validated_images, create_app
+from signal_group_sender import web
+from signal_group_sender.web import _validated_attachments, create_app
 
 
 def test_dashboard_renders(settings: Settings) -> None:
@@ -36,6 +37,7 @@ def test_login_and_dashboard_render(settings: Settings) -> None:
     assert "Выйти" in response.text
     assert "Telegram на той же странице" in response.text
     assert 'src="http://127.0.0.1:8788/"' in response.text
+    assert "Запустить Telegram" in response.text
 
 
 def test_post_requires_same_origin(settings: Settings) -> None:
@@ -182,7 +184,7 @@ def test_plan_limits_alias_count_to_50(
     monkeypatch.setattr(SignalApiClient, "list_accounts", lambda self: [settings.number])
     monkeypatch.setattr(SignalApiClient, "list_groups", lambda self: groups)
     encoded = base64.b64encode(b"\x89PNG\r\n\x1a\npayload").decode()
-    images = [f"data:image/png;base64,{encoded}" for _ in range(5)]
+    attachments = [f"data:image/png;base64,{encoded}" for _ in range(5)]
 
     with TestClient(create_app(settings_50, "correct-horse-battery")) as client:
         client.post(
@@ -195,7 +197,7 @@ def test_plan_limits_alias_count_to_50(
         response_51 = client.post(
             "/api/plan",
             headers={"Origin": "http://127.0.0.1:8787"},
-            json={"aliases": aliases_51, "message": "hello", "images": images},
+            json={"aliases": aliases_51, "message": "hello", "attachments": attachments},
         )
         assert response_51.status_code == 422
 
@@ -203,13 +205,13 @@ def test_plan_limits_alias_count_to_50(
         response_50 = client.post(
             "/api/plan",
             headers={"Origin": "http://127.0.0.1:8787"},
-            json={"aliases": aliases_50, "message": "hello", "images": images},
+            json={"aliases": aliases_50, "message": "hello", "attachments": attachments},
         )
 
     assert response_50.status_code == 200
     payload = response_50.json()
     assert payload["group_count"] == 50
-    assert payload["image_count"] == 5
+    assert payload["attachment_count"] == 5
 
 
 def test_link_qr_requires_authenticated_same_origin(
@@ -221,20 +223,29 @@ def test_link_qr_requires_authenticated_same_origin(
     assert response.status_code == 403
 
 
-def test_validates_png_image() -> None:
+def test_validates_png_attachment() -> None:
     encoded = base64.b64encode(b"\x89PNG\r\n\x1a\npayload").decode()
 
-    images, digests = _validated_images([f"data:image/png;base64,{encoded}"])
+    attachments, digests = _validated_attachments([f"data:image/png;base64,{encoded}"])
 
-    assert images == [f"data:image/png;base64,{encoded}"]
+    assert attachments == [f"data:image/png;base64,{encoded}"]
     assert len(digests[0]) == 64
 
 
-def test_rejects_image_with_mismatched_signature() -> None:
+def test_validates_mp4_attachment() -> None:
+    encoded = base64.b64encode(b"\x00\x00\x00\x18ftypmp42payload").decode()
+
+    attachments, digests = _validated_attachments([f"data:video/mp4;base64,{encoded}"])
+
+    assert attachments == [f"data:video/mp4;base64,{encoded}"]
+    assert len(digests[0]) == 64
+
+
+def test_rejects_attachment_with_mismatched_signature() -> None:
     encoded = base64.b64encode(b"not a png").decode()
 
     with pytest.raises(BroadcastError, match="does not match"):
-        _validated_images([f"data:image/png;base64,{encoded}"])
+        _validated_attachments([f"data:image/png;base64,{encoded}"])
 
 
 def test_stats_returns_aggregated_data(
@@ -268,3 +279,69 @@ def test_stats_requires_auth(settings: Settings) -> None:
         response = client.get("/api/stats")
 
     assert response.status_code == 401
+
+
+def test_telegram_panel_status_requires_auth(settings: Settings) -> None:
+    with TestClient(create_app(settings, "correct-horse-battery")) as client:
+        response = client.get("/api/telegram-panel/status")
+
+    assert response.status_code == 401
+
+
+def test_telegram_panel_status_returns_payload(
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        web,
+        "_telegram_panel_status",
+        lambda: {
+            "available": False,
+            "local": True,
+            "url": "http://127.0.0.1:8788/",
+            "message": "Telegram-панель не отвечает.",
+        },
+    )
+
+    with TestClient(create_app(settings, "correct-horse-battery")) as client:
+        client.post(
+            "/api/login",
+            headers={"Origin": "http://127.0.0.1:8787"},
+            json={"password": "correct-horse-battery"},
+        )
+        response = client.get("/api/telegram-panel/status")
+
+    assert response.status_code == 200
+    assert response.json()["local"] is True
+
+
+def test_telegram_panel_start_uses_same_origin_and_auth(
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        web,
+        "_start_local_telegram_panel",
+        lambda: {
+            "available": True,
+            "local": True,
+            "url": "http://127.0.0.1:8788/",
+            "message": "Telegram-панель доступна.",
+            "started": True,
+        },
+    )
+
+    with TestClient(create_app(settings, "correct-horse-battery")) as client:
+        client.post(
+            "/api/login",
+            headers={"Origin": "http://127.0.0.1:8787"},
+            json={"password": "correct-horse-battery"},
+        )
+        response = client.post(
+            "/api/telegram-panel/start",
+            headers={"Origin": "http://127.0.0.1:8787"},
+            json={},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["started"] is True

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from signal_group_sender.telegram_client import TelegramApiClient
 from signal_group_sender.telegram_config import TelegramSettings
 from signal_group_sender.telegram_service import TelegramBroadcastService
-from signal_group_sender.telegram_web import _validated_images, create_app
+from signal_group_sender.telegram_web import _validated_attachments, create_app
 
 
 def test_telegram_dashboard_renders(telegram_settings: TelegramSettings) -> None:
@@ -149,11 +149,22 @@ def test_stats_endpoint_works(
     assert response.json()["success_rate"] == 100
 
 
-def test_validates_telegram_png_image() -> None:
+def test_validates_telegram_png_attachment() -> None:
     encoded = base64.b64encode(b"\x89PNG\r\n\x1a\npayload").decode()
 
-    attachments, digests = _validated_images([f"data:image/png;base64,{encoded}"])
+    attachments, digests = _validated_attachments([f"data:image/png;base64,{encoded}"])
 
     assert len(attachments) == 1
     assert attachments[0].name.endswith(".png")
+    assert len(digests[0]) == 64
+
+
+def test_validates_telegram_mp4_attachment() -> None:
+    encoded = base64.b64encode(b"\x00\x00\x00\x18ftypmp42payload").decode()
+
+    attachments, digests = _validated_attachments([f"data:video/mp4;base64,{encoded}"])
+
+    assert len(attachments) == 1
+    assert attachments[0].name.endswith(".mp4")
+    assert attachments[0].mime_type == "video/mp4"
     assert len(digests[0]) == 64

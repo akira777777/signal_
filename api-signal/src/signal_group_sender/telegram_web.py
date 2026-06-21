@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Annotated, Any, cast
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -43,12 +44,12 @@ from signal_group_sender.telegram_targets import (
     select_targets,
 )
 from signal_group_sender.web_common import (
-    MAX_IMAGE_DATA_URL_CHARS,
+    MAX_ATTACHMENT_DATA_URL_CHARS,
     SignedSessionManager,
     allowed_origins_from_env,
     require_json_same_origin,
     trusted_hosts_from_env,
-    validate_image_data_urls,
+    validate_attachment_data_urls,
 )
 
 LOGGER = logging.getLogger("signal_group_sender.telegram_web")
@@ -65,11 +66,12 @@ STATIC_ASSET_VERSION = str(
         (PACKAGE_DIRECTORY / "static" / "favicon.svg").stat().st_mtime_ns,
     )
 )
-IMAGE_EXTENSIONS = {
+ATTACHMENT_EXTENSIONS = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
     "image/gif": ".gif",
     "image/webp": ".webp",
+    "video/mp4": ".mp4",
 }
 
 
@@ -80,7 +82,9 @@ class PlanRequest(BaseModel):
     message: str = Field(default="", max_length=4096)
     repeat_count: int = Field(default=1, ge=1, le=20)
     interval_seconds: int = Field(default=0, ge=0, le=86_400)
-    images: list[Annotated[str, Field(max_length=MAX_IMAGE_DATA_URL_CHARS)]] = Field(
+    attachments: list[
+        Annotated[str, Field(max_length=MAX_ATTACHMENT_DATA_URL_CHARS)]
+    ] = Field(
         default_factory=list,
     )
 
@@ -203,17 +207,21 @@ def _chat_view(target: ChatTarget) -> dict[str, Any]:
     }
 
 
-def _validated_images(images: list[str]) -> tuple[list[TelegramAttachment], tuple[str, ...]]:
-    validated = validate_image_data_urls(images, error_type=TelegramBroadcastError)
+def _validated_attachments(
+    attachments: list[str],
+) -> tuple[list[TelegramAttachment], tuple[str, ...]]:
+    validated = validate_attachment_data_urls(
+        attachments, error_type=TelegramBroadcastError
+    )
     attachments = [
         TelegramAttachment(
-            name=f"telegram-image-{index}{IMAGE_EXTENSIONS[image.media_type]}",
-            mime_type=image.media_type,
-            content=image.raw,
+            name=f"telegram-attachment-{index}{ATTACHMENT_EXTENSIONS[item.media_type]}",
+            mime_type=item.media_type,
+            content=item.raw,
         )
-        for index, image in enumerate(validated, start=1)
+        for index, item in enumerate(validated, start=1)
     ]
-    return attachments, tuple(image.digest for image in validated)
+    return attachments, tuple(item.digest for item in validated)
 
 
 def _template_context(**extra: Any) -> dict[str, Any]:
@@ -226,13 +234,15 @@ def create_app(
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> Any:
+        env_file = Path(".env")
+        load_dotenv(dotenv_path=env_file, override=False)
         password = web_password if web_password is not None else os.getenv(
             "TELEGRAM_WEB_PASSWORD", ""
         )
         if len(password) < 4:
             raise TelegramConfigError("TELEGRAM_WEB_PASSWORD must contain at least 4 characters")
         app.state.context = TelegramWebContext(
-            settings or TelegramSettings.from_env(Path(".env")),
+            settings or TelegramSettings.from_env(env_file),
             password,
         )
         yield
@@ -390,7 +400,9 @@ def create_app(
         __: AuthDependency,
     ) -> dict[str, Any]:
         targets = context.selected(payload.aliases)
-        attachments, attachment_digests = _validated_images(payload.images)
+        attachments, attachment_digests = _validated_attachments(
+            payload.attachments
+        )
         del attachments
         plan_result = build_broadcast_plan(
             context.settings,
@@ -408,7 +420,7 @@ def create_app(
             "confirm_token": plan_result.confirm_token,
             "repeat_count": payload.repeat_count,
             "interval_seconds": payload.interval_seconds,
-            "image_count": len(attachment_digests),
+            "attachment_count": len(attachment_digests),
         }
 
     @app.post("/api/send")
@@ -419,7 +431,9 @@ def create_app(
         __: AuthDependency,
     ) -> dict[str, Any]:
         targets = context.selected(payload.aliases)
-        attachments, attachment_digests = _validated_images(payload.images)
+        attachments, attachment_digests = _validated_attachments(
+            payload.attachments
+        )
         with RunLock(context.settings.lock_file):
             results = context.service().send(
                 targets,

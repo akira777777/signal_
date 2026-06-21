@@ -13,21 +13,22 @@ from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 
-MAX_IMAGE_BYTES = 8 * 1024 * 1024
-MAX_TOTAL_IMAGE_BYTES = 20 * 1024 * 1024
-MAX_IMAGE_DATA_URL_CHARS = 11_200_000
-IMAGE_SIGNATURES = {
+MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
+MAX_TOTAL_ATTACHMENT_BYTES = 20 * 1024 * 1024
+MAX_ATTACHMENT_DATA_URL_CHARS = 11_200_000
+ATTACHMENT_SIGNATURES = {
     "image/png": (b"\x89PNG\r\n\x1a\n",),
     "image/jpeg": (b"\xff\xd8\xff",),
     "image/gif": (b"GIF87a", b"GIF89a"),
     "image/webp": (b"RIFF",),
+    "video/mp4": (b"\x00\x00\x00",),
 }
 
 ExceptionFactory: TypeAlias = type[Exception]
 
 
 @dataclass(frozen=True, slots=True)
-class ValidatedImage:
+class ValidatedAttachment:
     media_type: str
     encoded: str
     raw: bytes
@@ -130,38 +131,40 @@ def require_json_same_origin(request: Request, *, allowed_origins: set[str]) -> 
         raise HTTPException(status_code=415, detail="JSON request required")
 
 
-def validate_image_data_urls(
-    images: list[str],
+def validate_attachment_data_urls(
+    attachments: list[str],
     *,
     error_type: ExceptionFactory,
-) -> list[ValidatedImage]:
-    validated: list[ValidatedImage] = []
+) -> list[ValidatedAttachment]:
+    validated: list[ValidatedAttachment] = []
     total_bytes = 0
-    for image in images:
-        if not image.startswith("data:") or ";base64," not in image:
-            raise error_type("Image must use a base64 data URL")
-        header, encoded = image.split(",", 1)
+    for attachment in attachments:
+        if not attachment.startswith("data:") or ";base64," not in attachment:
+            raise error_type("Attachment must use a base64 data URL")
+        header, encoded = attachment.split(",", 1)
         media_type = header[5:].split(";", 1)[0].lower()
-        signatures = IMAGE_SIGNATURES.get(media_type)
+        signatures = ATTACHMENT_SIGNATURES.get(media_type)
         if signatures is None:
-            raise error_type("Only PNG, JPEG, WebP and GIF images are allowed")
+            raise error_type("Only PNG, JPEG, WebP, GIF and MP4 attachments are allowed")
         try:
             raw = base64.b64decode(encoded, validate=True)
         except (binascii.Error, ValueError) as exc:
-            raise error_type("Image contains invalid base64 data") from exc
-        if not raw or len(raw) > MAX_IMAGE_BYTES:
-            raise error_type("Each image must be between 1 byte and 8 MB")
+            raise error_type("Attachment contains invalid base64 data") from exc
+        if not raw or len(raw) > MAX_ATTACHMENT_BYTES:
+            raise error_type("Each attachment must be between 1 byte and 8 MB")
         if media_type == "image/webp":
             valid_signature = raw.startswith(b"RIFF") and raw[8:12] == b"WEBP"
+        elif media_type == "video/mp4":
+            valid_signature = len(raw) >= 12 and raw[4:8] == b"ftyp"
         else:
             valid_signature = any(raw.startswith(prefix) for prefix in signatures)
         if not valid_signature:
-            raise error_type("Image content does not match its MIME type")
+            raise error_type("Attachment content does not match its MIME type")
         total_bytes += len(raw)
-        if total_bytes > MAX_TOTAL_IMAGE_BYTES:
-            raise error_type("Total image size must not exceed 20 MB")
+        if total_bytes > MAX_TOTAL_ATTACHMENT_BYTES:
+            raise error_type("Total attachment size must not exceed 20 MB")
         validated.append(
-            ValidatedImage(
+            ValidatedAttachment(
                 media_type=media_type,
                 encoded=encoded,
                 raw=raw,
