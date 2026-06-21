@@ -167,3 +167,47 @@ def test_execute_without_confirmation_fails_closed(
     assert exit_code == 1
     assert "requires --confirm-count 1" in caplog.text
     assert FakeSignalClient.sent == []
+
+
+def test_history_command_empty_and_populated(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import os
+    for key in list(os.environ.keys()):
+        if key.startswith("SIGNAL_"):
+            monkeypatch.delenv(key, raising=False)
+
+    env_file, message_file, confirm_token = _write_config(tmp_path)
+    monkeypatch.setattr(cli, "SignalApiClient", FakeSignalClient)
+
+    exit_code = cli.main(["--env-file", str(env_file), "history"])
+    assert exit_code == 0
+    assert "No state secret file found" in capsys.readouterr().out
+
+    cli.main(
+        [
+            "--env-file",
+            str(env_file),
+            "send",
+            "--group",
+            "ops",
+            "--message-file",
+            str(message_file),
+            "--execute",
+            "--confirm-count",
+            "1",
+            "--confirm-token",
+            confirm_token,
+        ]
+    )
+    capsys.readouterr()
+
+    exit_code = cli.main(["--env-file", str(env_file), "history"])
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "Time" in output
+    assert "Alias" in output
+    assert "ops" in output
+    assert "sent" in output

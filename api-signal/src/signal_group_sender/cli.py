@@ -73,6 +73,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Retry only targets whose previous delivery is unknown",
     )
+
+    history_parser = subparsers.add_parser(
+        "history", help="List past delivery attempts from the local secure state file"
+    )
+    history_parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Limit the number of history records shown (default: 20, use 0 for all)",
+    )
     return parser
 
 
@@ -173,6 +183,35 @@ def _run_send(args: argparse.Namespace, settings: Settings) -> int:
     return 2 if any(result.status not in successful_statuses for result in results) else 0
 
 
+def _run_history(args: argparse.Namespace, settings: Settings) -> int:
+    if not settings.state_secret_file.exists():
+        print("No state secret file found. No sending history exists yet.")
+        return 0
+    fingerprint_key = load_or_create_hmac_key(settings.state_secret_file)
+    ledger = DeliveryLedger(
+        settings.state_file,
+        integrity_key=fingerprint_key,
+        duplicate_window_seconds=settings.duplicate_window_seconds,
+    )
+    ledger.initialize(allow_create=False)
+    records = ledger.get_records()
+    if not records:
+        print("No delivery history records found.")
+        return 0
+
+    import datetime
+    ordered = list(reversed(records))
+    if args.limit > 0:
+        ordered = ordered[:args.limit]
+
+    print(f"{'Time':<20} | {'Alias':<15} | {'Target Token':<16} | {'Status':<12}")
+    print("-" * 71)
+    for r in ordered:
+        dt = datetime.datetime.fromtimestamp(r.sent_at).strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{dt:<20} | {r.alias:<15} | {r.target_token:<16} | {r.status:<12}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -189,6 +228,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "send":
             return _run_send(args, settings)
+        if args.command == "history":
+            return _run_history(args, settings)
     except (
         AllowlistError,
         BroadcastError,
