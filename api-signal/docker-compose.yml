@@ -88,64 +88,7 @@ services:
       - backplane
       - dashboard-host
 
-  telegram-broadcaster:
-    profiles:
-      - telegram-cli
-    build:
-      context: .
-    entrypoint:
-      - telegram-groups
-    env_file:
-      - .env
-    environment:
-      TELEGRAM_SESSION_FILE: /data/telegram.session
-      TELEGRAM_STATE_FILE: /data/state.json
-      TELEGRAM_STATE_SECRET_FILE: /data/state.secret
-      TELEGRAM_LOCK_FILE: /data/sender.lock
-    volumes:
-      - telegram-data:/data
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    pids_limit: 64
-    mem_limit: 256m
-    cpus: 0.5
-    networks:
-      - telegram-egress
 
-  telegram-dashboard:
-    build:
-      context: .
-    entrypoint:
-      - telegram-web
-    env_file:
-      - .env
-    environment:
-      TELEGRAM_SESSION_FILE: /data/telegram.session
-      TELEGRAM_STATE_FILE: /data/state.json
-      TELEGRAM_STATE_SECRET_FILE: /data/state.secret
-      TELEGRAM_LOCK_FILE: /data/sender.lock
-      TELEGRAM_WEB_PASSWORD: ${TELEGRAM_WEB_PASSWORD}
-    ports:
-      - "127.0.0.1:8788:8788"
-    volumes:
-      - telegram-data:/data
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    pids_limit: 64
-    mem_limit: 256m
-    cpus: 0.5
-    networks:
-      - telegram-egress
 
   linker:
     profiles:
@@ -170,9 +113,7 @@ networks:
     internal: true
   dashboard-host: {}
   signal-egress: {}
-  telegram-egress: {}
 
 volumes:
   signal-cli-data:
   broadcaster-data:
-  telegram-data:

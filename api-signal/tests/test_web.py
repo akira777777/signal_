@@ -36,9 +36,6 @@ def test_login_and_dashboard_render(settings: Settings) -> None:
     assert "Количество отправок" in response.text
     assert "Подключить другой аккаунт" in response.text
     assert "Выйти" in response.text
-    assert "Telegram на той же странице" in response.text
-    assert 'src="http://127.0.0.1:8788/"' in response.text
-    assert "Запустить Telegram" in response.text
 
 
 def test_post_requires_same_origin(settings: Settings) -> None:
@@ -353,67 +350,4 @@ def test_server_campaign_runs_repeats_without_browser_timer(
     ]
 
 
-def test_telegram_panel_status_requires_auth(settings: Settings) -> None:
-    with TestClient(create_app(settings, "correct-horse-battery")) as client:
-        response = client.get("/api/telegram-panel/status")
 
-    assert response.status_code == 401
-
-
-def test_telegram_panel_status_returns_payload(
-    settings: Settings,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        web,
-        "_telegram_panel_status",
-        lambda: {
-            "available": False,
-            "local": True,
-            "url": "http://127.0.0.1:8788/",
-            "message": "Telegram-панель не отвечает.",
-        },
-    )
-
-    with TestClient(create_app(settings, "correct-horse-battery")) as client:
-        client.post(
-            "/api/login",
-            headers={"Origin": "http://127.0.0.1:8787"},
-            json={"password": "correct-horse-battery"},
-        )
-        response = client.get("/api/telegram-panel/status")
-
-    assert response.status_code == 200
-    assert response.json()["local"] is True
-
-
-def test_telegram_panel_start_uses_same_origin_and_auth(
-    settings: Settings,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        web,
-        "_start_local_telegram_panel",
-        lambda: {
-            "available": True,
-            "local": True,
-            "url": "http://127.0.0.1:8788/",
-            "message": "Telegram-панель доступна.",
-            "started": True,
-        },
-    )
-
-    with TestClient(create_app(settings, "correct-horse-battery")) as client:
-        client.post(
-            "/api/login",
-            headers={"Origin": "http://127.0.0.1:8787"},
-            json={"password": "correct-horse-battery"},
-        )
-        response = client.post(
-            "/api/telegram-panel/start",
-            headers={"Origin": "http://127.0.0.1:8787"},
-            json={},
-        )
-
-    assert response.status_code == 200
-    assert response.json()["started"] is True

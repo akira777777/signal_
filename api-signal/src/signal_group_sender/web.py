@@ -314,86 +314,9 @@ def _validated_attachments(
         attachment.digest for attachment in validated
     )
 
-
-def _telegram_panel_url() -> str:
-    url = os.getenv("TELEGRAM_PANEL_URL", "http://127.0.0.1:8788/").strip()
-    return url.rstrip("/") + "/"
-
-
-def _telegram_panel_probe_url(panel_url: str) -> str:
-    return panel_url.rstrip("/") + "/login"
-
-
-def _is_local_panel_url(panel_url: str) -> bool:
-    parsed = urlparse(panel_url)
-    return parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}
-
-
-def _telegram_panel_status() -> dict[str, Any]:
-    panel_url = _telegram_panel_url()
-    available = False
-    message = "Telegram-панель не отвечает."
-    try:
-        response = requests.get(
-            _telegram_panel_probe_url(panel_url),
-            timeout=1.5,
-            allow_redirects=False,
-        )
-        available = response.status_code < 500
-        if available:
-            message = "Telegram-панель доступна."
-    except requests.RequestException:
-        available = False
-    return {
-        "available": available,
-        "local": _is_local_panel_url(panel_url),
-        "url": panel_url,
-        "message": message,
-    }
-
-
-def _start_local_telegram_panel() -> dict[str, Any]:
-    status = _telegram_panel_status()
-    if status["available"]:
-        status["started"] = False
-        return status
-    if not status["local"]:
-        raise BroadcastError("Telegram-панель можно запускать только для localhost")
-
-    parsed = urlparse(status["url"])
-    host = parsed.hostname or "127.0.0.1"
-    port = parsed.port or 8788
-    project_root = PACKAGE_DIRECTORY.parents[1]
-    subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "signal_group_sender.telegram_web:app",
-            "--host",
-            host,
-            "--port",
-            str(port),
-        ],
-        cwd=project_root,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
-    for _ in range(20):
-        time.sleep(0.25)
-        status = _telegram_panel_status()
-        if status["available"]:
-            status["started"] = True
-            return status
-    raise BroadcastError("Telegram-панель не успела запуститься")
-
-
 def _template_context(**extra: Any) -> dict[str, Any]:
-    telegram_panel_url = _telegram_panel_url()
     return {
         "asset_version": STATIC_ASSET_VERSION,
-        "telegram_panel_url": telegram_panel_url,
         **extra,
     }
 
@@ -430,6 +353,13 @@ def create_app(
         TrustedHostMiddleware,
         allowed_hosts=trusted_hosts_from_env("SIGNAL_ALLOWED_HOSTS"),
     )
+
+    @app.middleware("http")
+    async def add_security_headers(request: Request, call_next: Any) -> Response:
+        response = await call_next(request)
+        response.headers["Permissions-Policy"] = "unload=*"
+        return response
+
     app.mount(
         "/static",
         StaticFiles(directory=PACKAGE_DIRECTORY / "static"),
@@ -490,15 +420,26 @@ def create_app(
     def status(context: ContextDependency, _: AuthDependency) -> dict[str, Any]:
         try:
             accounts = context.accounts()
+        except SignalApiError as exc:
+            return {
+                "connected": False,
+                "message": f"Signal API is unavailable: {exc}",
+                "accounts": [],
+                "active_number": context.settings.number,
+                "groups": [],
+            }
+
+        try:
             targets = context.live_targets()
         except SignalApiError as exc:
             return {
                 "connected": False,
                 "message": str(exc),
-                "accounts": [],
+                "accounts": accounts,
                 "active_number": context.settings.number,
                 "groups": [],
             }
+
         return {
             "connected": True,
             "message": f"Signal подключён: {context.settings.number}",
@@ -508,6 +449,7 @@ def create_app(
                 _group_view(target, {target.group_id}) for target in targets.values()
             ],
         }
+
 
     @app.get("/api/history")
     def get_history(
@@ -539,16 +481,7 @@ def create_app(
     ) -> dict[str, Any]:
         return context.campaign_status()
 
-    @app.get("/api/telegram-panel/status")
-    def telegram_panel_status(_: AuthDependency) -> dict[str, Any]:
-        return _telegram_panel_status()
 
-    @app.post("/api/telegram-panel/start")
-    def start_telegram_panel(
-        _: OriginDependency,
-        __: AuthDependency,
-    ) -> dict[str, Any]:
-        return _start_local_telegram_panel()
 
     @app.post("/api/accounts/select")
     def select_account(

@@ -76,11 +76,6 @@ const elements = {
   statDaily: document.querySelector("#stat-daily"),
   statSuccess: document.querySelector("#stat-success"),
   statRemaining: document.querySelector("#stat-remaining"),
-  telegramFrame: document.querySelector("#telegram-frame"),
-  telegramFrameFallback: document.querySelector("#telegram-frame-fallback"),
-  telegramFrameTitle: document.querySelector("#telegram-frame-title"),
-  telegramFrameStatus: document.querySelector("#telegram-frame-status"),
-  telegramLaunchButton: document.querySelector("#telegram-launch-button"),
 };
 
 function escapeHtml(value) {
@@ -655,74 +650,7 @@ async function loadStats() {
 // Auto-refresh stats every 60 seconds
 setInterval(() => loadStats().catch(() => {}), 60_000);
 
-function renderTelegramPanelState(payload) {
-  const available = Boolean(payload?.available);
-  const local = Boolean(payload?.local);
-  const url = payload?.url || "http://127.0.0.1:8788/";
 
-  elements.telegramFrame.classList.toggle("hidden", !available);
-  elements.telegramFrameFallback.classList.toggle("hidden", available);
-
-  if (available) {
-    if (elements.telegramFrame.dataset.loadedUrl !== url) {
-      elements.telegramFrame.src = url;
-      elements.telegramFrame.dataset.loadedUrl = url;
-    }
-    return;
-  }
-
-  elements.telegramFrame.removeAttribute("src");
-  elements.telegramFrame.removeAttribute("data-loaded-url");
-  elements.telegramFrameTitle.textContent = local
-    ? "Telegram-панель пока не запущена"
-    : "Telegram-панель недоступна";
-  elements.telegramFrameStatus.textContent = payload?.message
-    || (local
-      ? `Можно поднять локальную панель и сразу загрузить её здесь: ${url}`
-      : `Откройте Telegram отдельно по адресу ${url}`);
-  elements.telegramLaunchButton.classList.toggle("hidden", !local);
-  elements.telegramLaunchButton.disabled = false;
-}
-
-async function loadTelegramPanelStatus() {
-  try {
-    const payload = await api("/api/telegram-panel/status");
-    renderTelegramPanelState(payload);
-    return payload;
-  } catch (error) {
-    renderTelegramPanelState({
-      available: false,
-      local: true,
-      message: error.message,
-    });
-    throw error;
-  }
-}
-
-async function startTelegramPanel() {
-  elements.telegramLaunchButton.disabled = true;
-  elements.telegramFrameTitle.textContent = "Запускаем Telegram-панель";
-  elements.telegramFrameStatus.textContent = "Поднимаем локальный сервер и ждём, пока iframe станет доступен.";
-  try {
-    const payload = await api("/api/telegram-panel/start", {
-      method: "POST",
-      body: "{}",
-    });
-    renderTelegramPanelState(payload);
-    showToast("Telegram-панель запущена", "success");
-  } catch (error) {
-    renderTelegramPanelState({
-      available: false,
-      local: true,
-      message: error.message,
-    });
-    showToast(error.message, "error");
-  } finally {
-    elements.telegramLaunchButton.disabled = false;
-  }
-}
-
-/* 2. View Switcher System */
 function switchView(viewName) {
   if (viewName === "broadcast") {
     elements.navBroadcast.classList.add("active");
@@ -921,9 +849,6 @@ elements.navBroadcast.addEventListener("click", () => switchView("broadcast"));
 elements.navHistory.addEventListener("click", () => switchView("history"));
 elements.historySearch.addEventListener("input", renderHistory);
 elements.historyStatusFilter.addEventListener("change", renderHistory);
-elements.telegramLaunchButton.addEventListener("click", () => {
-  startTelegramPanel().catch(() => {});
-});
 
 // Keyboard shortcuts
 document.addEventListener("keydown", (event) => {
@@ -964,7 +889,6 @@ initTheme();
 restoreDraft();
 loadStatus().catch(() => {});
 loadStats().catch(() => {});
-loadTelegramPanelStatus().catch(() => {});
 refreshCampaignStatus().then((campaign) => {
   if (isCampaignActive(campaign)) startCampaignPolling();
 }).catch(() => {});

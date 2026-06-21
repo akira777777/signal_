@@ -274,52 +274,6 @@
           </section>
         </section>
 
-        <aside class="telegram-dock" aria-labelledby="telegram-panel-heading">
-          <div class="telegram-card">
-            <div class="channel-banner compact">
-              <div>
-                <span class="channel-eyebrow telegram">Telegram</span>
-                <h2 id="telegram-panel-heading">Telegram на той же странице</h2>
-                <p>Отдельная панель загружается прямо здесь. Можно работать с двумя каналами рядом и при необходимости открыть Telegram отдельно.</p>
-              </div>
-              <a class="button secondary" href="{{ telegram_panel_url }}" target="_blank" rel="noreferrer">
-                Открыть отдельно
-              </a>
-            </div>
-            <div class="telegram-tips">
-              <div class="tip-chip">Адрес: <code>{{ telegram_panel_url }}</code></div>
-              <div class="tip-chip">Авторизация Telegram остаётся изолированной</div>
-            </div>
-            <div class="telegram-frame-shell">
-              <div id="telegram-frame-fallback" class="telegram-frame-fallback">
-                <div class="telegram-frame-copy">
-                  <strong id="telegram-frame-title">Проверяем панель Telegram</strong>
-                  <p id="telegram-frame-status">
-                    Смотрим, доступна ли локальная панель по адресу {{ telegram_panel_url }}.
-                  </p>
-                </div>
-                <div class="telegram-frame-actions">
-                  <button
-                    id="telegram-launch-button"
-                    class="button primary"
-                    type="button">
-                    Запустить Telegram
-                  </button>
-                  <a class="button secondary" href="{{ telegram_panel_url }}" target="_blank" rel="noreferrer">
-                    Открыть отдельно
-                  </a>
-                </div>
-              </div>
-              <iframe
-                id="telegram-frame"
-                class="telegram-frame"
-                src="{{ telegram_panel_url }}"
-                title="Telegram Панель"
-                loading="lazy">
-              </iframe>
-            </div>
-          </div>
-        </aside>
       </div>
     </main>
   </div>
