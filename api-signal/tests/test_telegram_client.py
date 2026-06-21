@@ -156,12 +156,6 @@ def test_list_dialogs_keeps_sorted_targets_with_broadcast_pattern(
 
     assert client.list_dialogs() == [
         {
-            "id": "1004",
-            "name": "Alpha Channel",
-            "kind": "channel",
-            "available": True,
-        },
-        {
             "id": "1003",
             "name": "Zulu Supergroup",
             "kind": "supergroup",
@@ -228,32 +222,6 @@ def test_list_dialogs_excludes_supergroup_with_temporary_restriction(
     client = _client(telegram_settings, FakeClient(dialogs, messages))
 
     assert client.list_dialogs() == []
-
-
-def test_list_dialogs_keeps_read_only_channel_with_broadcast_pattern(
-    telegram_settings: TelegramSettings,
-    monkeypatch,
-) -> None:
-    _patch_runtime(monkeypatch)
-    dialogs = [FakeDialog(FakeChannel(broadcast=True), "1001", "Read Only Channel")]
-    dialogs[0].entity.dialog_id = dialogs[0].dialog_id
-    messages = {
-        "1001": [
-            FakeMessage(message="Promo with #tag"),
-            FakeMessage(message="Second post"),
-        ],
-    }
-
-    client = _client(telegram_settings, FakeClient(dialogs, messages))
-
-    assert client.list_dialogs() == [
-        {
-            "id": "1001",
-            "name": "Read Only Channel",
-            "kind": "channel",
-            "available": True,
-        }
-    ]
 
 
 

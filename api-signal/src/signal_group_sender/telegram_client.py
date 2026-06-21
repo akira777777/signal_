@@ -266,12 +266,8 @@ class TelegramApiClient:
                 available = self._is_active_supergroup(
                     entity
                 ) and self._can_send_in_chat_now(entity)
-            elif getattr(entity, "broadcast", False):
-                kind = "channel"
-                available = self._is_active_channel(entity)
             else:
-                kind = "channel"
-                available = self._is_active_channel(entity)
+                return None
         else:
             return None
 
