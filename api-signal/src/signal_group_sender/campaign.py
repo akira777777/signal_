@@ -193,8 +193,9 @@ class PersistentCampaignManager:
             remaining = deadline - self._clock()
             if remaining <= 0:
                 return
-            self._wake_event.wait(min(remaining, self._wait_slice_seconds))
-            self._wake_event.clear()
+            if self._wake_event.wait(min(remaining, self._wait_slice_seconds)):
+                self._wake_event.clear()
+                return
 
     def _finish(self, snapshot: dict[str, Any], status: str) -> None:
         snapshot["status"] = status

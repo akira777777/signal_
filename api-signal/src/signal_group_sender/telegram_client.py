@@ -448,11 +448,17 @@ class TelegramApiClient:
     def _has_media_restriction(rights: Any) -> bool:
         if rights is None:
             return False
-        for attr in ("send_media", "send_photos", "send_videos"):
-            val = getattr(rights, attr, None)
-            if val is True:
-                return True
+        # If sending all media is banned
+        if getattr(rights, "send_media", None) is True:
+            return True
+        # If both photos and videos are explicitly banned
+        if (
+            getattr(rights, "send_photos", None) is True
+            and getattr(rights, "send_videos", None) is True
+        ):
+            return True
         return False
+
 
     @classmethod
     def _dialog_sort_key(cls, dialog: dict[str, Any]) -> tuple[int, str]:
