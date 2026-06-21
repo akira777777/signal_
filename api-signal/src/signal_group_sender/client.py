@@ -172,7 +172,7 @@ class SignalApiClient:
                 "Signal API returned an invalid success response; delivery is unknown"
             ) from exc
         if not isinstance(result, dict) or not isinstance(
-            result.get("timestamp"), (str, int)
+            result.get("timestamp"), str | int
         ):
             raise DeliveryUncertainError(
                 "Signal API omitted the delivery timestamp; delivery is unknown"
