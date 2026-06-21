@@ -16,8 +16,9 @@
     <h1>Вход в панель</h1>
     <p>Введите локальный пароль и затем выполните вход в Telegram.</p>
     <form id="login-form">
+      <input type="text" name="username" autocomplete="username" value="telegram-panel" hidden>
       <label class="field-label" for="password">Пароль</label>
-      <input id="password" type="password" autocomplete="current-password" placeholder="••••" required autofocus>
+      <input id="password" type="password" autocomplete="current-password" placeholder="••••" required>
       <div id="login-error" class="error-box hidden" role="alert"></div>
       <button class="button primary login-button" type="submit">Войти</button>
     </form>
