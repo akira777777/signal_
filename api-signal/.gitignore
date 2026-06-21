@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+*.egg-info/
+groups.json
+.signal-sender-state.json
+.signal-sender-secret
+.signal-sender.lock
+signal-cli-config/
+outputs/signal-link.png

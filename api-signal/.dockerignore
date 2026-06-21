@@ -1,0 +1,15 @@
+.env
+.venv
+.git
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.serena
+work
+outputs
+groups.json
+.signal-sender*
+signal-cli-config
+__pycache__
+*.pyc
+*.egg-info

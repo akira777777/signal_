@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Signal Панель</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">S</span>
+        <span>Signal Панель</span>
+      </div>
+      <nav aria-label="Основная навигация">
+        <button class="nav-item active" type="button">
+          <span class="nav-icon">↗</span>
+          Рассылка
+        </button>
+        <button class="nav-item" type="button" disabled>
+          <span class="nav-icon">≡</span>
+          История
+        </button>
+        <button id="logout-button" class="nav-item" type="button">
+          <span class="nav-icon">⇥</span>
+          Выйти
+        </button>
+      </nav>
+      <div class="account-card">
+        <label for="account-select">Signal-аккаунт</label>
+        <select id="account-select" aria-label="Активный Signal-аккаунт"></select>
+        <button id="link-account-button" class="sidebar-button" type="button">
+          Подключить другой аккаунт
+        </button>
+      </div>
+      <div class="connection-card">
+        <span id="connection-dot" class="status-dot pending"></span>
+        <div>
+          <strong id="connection-title">Проверка</strong>
+          <span id="connection-copy">Подключение к Signal</span>
+        </div>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div>
+          <h1>Новая рассылка</h1>
+          <p>Выберите группы, проверьте сообщение и подтвердите отправку.</p>
+        </div>
+        <button id="refresh-button" class="button secondary" type="button">Обновить</button>
+      </header>
+
+      <div class="workspace">
+        <section class="groups-panel" aria-labelledby="groups-heading">
+          <div class="section-heading">
+            <div>
+              <h2 id="groups-heading">Группы</h2>
+              <span id="selection-count">0 выбрано</span>
+            </div>
+            <label class="select-all">
+              <input id="select-all" type="checkbox">
+              Выбрать все
+            </label>
+          </div>
+          <label class="search">
+            <span aria-hidden="true">⌕</span>
+            <input id="group-search" type="search" placeholder="Поиск группы">
+          </label>
+          <div id="groups-list" class="groups-list" aria-live="polite">
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+            <div class="skeleton"></div>
+          </div>
+        </section>
+
+        <section class="composer-panel" aria-labelledby="message-heading">
+          <div class="section-heading">
+            <div>
+              <h2 id="message-heading">Сообщение</h2>
+              <span>Текст не сохраняется в журнале</span>
+            </div>
+            <span id="char-count">0 символов</span>
+          </div>
+          <textarea id="message" maxlength="20000" placeholder="Введите сообщение"></textarea>
+          <div class="attachments">
+            <div class="attachments-heading">
+              <div>
+                <strong>Изображения</strong>
+                <span>PNG, JPEG, WebP или GIF</span>
+              </div>
+              <label class="button secondary attachment-button" for="image-input">
+                Добавить изображения
+              </label>
+              <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+            </div>
+            <div id="image-previews" class="image-previews hidden"></div>
+          </div>
+          <div class="repeat-row">
+            <label for="repeat-count">
+              <span>Количество отправок</span>
+              <input id="repeat-count" type="number" min="1" max="20" value="1">
+            </label>
+            <label for="interval-select">
+              <span>Интервал между отправками</span>
+              <select id="interval-select">
+                <option value="5">5 секунд</option>
+                <option value="10">10 секунд</option>
+                <option value="30">30 секунд</option>
+                <option value="60" selected>1 минута</option>
+                <option value="300">5 минут</option>
+                <option value="900">15 минут</option>
+                <option value="1800">30 минут</option>
+                <option value="3600">1 час</option>
+              </select>
+            </label>
+            <small>Интервал применяется после каждой завершённой отправки. Вкладка должна оставаться открытой.</small>
+          </div>
+          <div id="countdown-box" class="countdown-box hidden">
+            <div>
+              <span id="countdown-label">Следующая отправка через</span>
+              <strong id="countdown-value">00:00</strong>
+            </div>
+            <button id="cancel-timer-button" class="button secondary" type="button">Остановить повторы</button>
+          </div>
+          <div id="plan-box" class="plan-box hidden">
+            <div>
+              <span>Получатели</span>
+              <strong id="plan-groups">—</strong>
+            </div>
+            <div>
+              <span>Изображения</span>
+              <strong id="plan-images">0</strong>
+            </div>
+            <div>
+              <span>Код подтверждения</span>
+              <code id="confirm-token">—</code>
+            </div>
+          </div>
+          <div id="error-box" class="error-box hidden" role="alert"></div>
+          <div class="actions">
+            <button id="plan-button" class="button secondary" type="button">Проверить отправку</button>
+            <button id="send-button" class="button primary" type="button" disabled>Отправить</button>
+          </div>
+          <p class="safety-note">При неизвестном результате автоматический повтор отключён.</p>
+        </section>
+      </div>
+
+      <section class="history-panel" aria-labelledby="history-heading">
+        <div class="section-heading">
+          <div>
+            <h2 id="history-heading">Результат отправки</h2>
+            <span>Текущий запуск</span>
+          </div>
+        </div>
+        <div id="results-empty" class="empty-state">Результаты появятся после отправки.</div>
+        <div id="results-table" class="results-table hidden"></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="confirm-dialog">
+    <form method="dialog">
+      <h2>Подтвердить отправку</h2>
+      <p>Сообщение будет отправлено в <strong id="dialog-count">0 групп</strong>.</p>
+      <p id="dialog-images">Без изображений.</p>
+      <p id="dialog-timing">Будет выполнена одна отправка.</p>
+      <div class="dialog-token">
+        <span>Код</span>
+        <code id="dialog-token">—</code>
+      </div>
+      <div class="actions">
+        <button class="button secondary" value="cancel">Отмена</button>
+        <button id="confirm-send-button" class="button primary" value="default">Отправить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="account-dialog">
+    <form method="dialog">
+      <h2>Подключить Signal-аккаунт</h2>
+      <p>На телефоне откройте Signal → Настройки → Связанные устройства и отсканируйте QR-код.</p>
+      <div class="qr-frame">
+        <img id="account-qr" alt="QR-код для подключения Signal-аккаунта">
+      </div>
+      <p id="account-link-status">Ожидание сканирования…</p>
+      <div class="actions">
+        <button id="close-account-dialog" class="button secondary" value="cancel">Закрыть</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="{{ url_for('static', path='/app.js') }}" defer></script>
+</body>
+</html>

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вход — Signal Панель</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <div class="brand login-brand">
+      <span class="brand-mark">S</span>
+      <span>Signal Панель</span>
+    </div>
+    <h1>Вход в панель</h1>
+    <p>Введите локальный пароль управления рассылками.</p>
+    <form id="login-form">
+      <label class="field-label" for="password">Пароль</label>
+      <input id="password" type="password" autocomplete="current-password" required autofocus>
+      <div id="login-error" class="error-box hidden" role="alert"></div>
+      <button class="button primary login-button" type="submit">Войти</button>
+    </form>
+  </main>
+  <script>
+    const form = document.querySelector("#login-form");
+    const errorBox = document.querySelector("#login-error");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      errorBox.classList.add("hidden");
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({password: document.querySelector("#password").value}),
+      });
+      if (response.ok) {
+        location.href = "/";
+        return;
+      }
+      const payload = await response.json();
+      errorBox.textContent = payload.detail || "Ошибка входа";
+      errorBox.classList.remove("hidden");
+    });
+  </script>
+</body>
+</html>

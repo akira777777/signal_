@@ -1,0 +1,11 @@
+{
+  "operations": {
+    "id": "group.REPLACE_WITH_ID_FROM_LIST_GROUPS",
+    "description": "Операционные уведомления"
+  },
+  "team": {
+    "id": "group.REPLACE_WITH_ANOTHER_GROUP_ID",
+    "description": "Командные уведомления"
+  }
+}
+
