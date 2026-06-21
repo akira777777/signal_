@@ -156,46 +156,46 @@ def test_status_lists_accounts_and_live_groups(
     assert payload["groups"][0]["name"] == "Operations"
 
 
-def test_plan_limits_alias_count_to_10(
+def test_plan_limits_alias_count_to_50(
     settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import dataclasses
-    settings_10 = dataclasses.replace(settings, max_groups_per_run=10)
+    settings_50 = dataclasses.replace(settings, max_groups_per_run=50)
     groups = [
         {"id": f"group.{index:02d}=", "name": f"Group {index}", "blocked": False}
-        for index in range(12)
+        for index in range(52)
     ]
     monkeypatch.setattr(SignalApiClient, "list_accounts", lambda self: [settings.number])
     monkeypatch.setattr(SignalApiClient, "list_groups", lambda self: groups)
     encoded = base64.b64encode(b"\x89PNG\r\n\x1a\npayload").decode()
     images = [f"data:image/png;base64,{encoded}" for _ in range(5)]
 
-    with TestClient(create_app(settings_10, "correct-horse-battery")) as client:
+    with TestClient(create_app(settings_50, "correct-horse-battery")) as client:
         client.post(
             "/api/login",
             headers={"Origin": "http://127.0.0.1:8787"},
             json={"password": "correct-horse-battery"},
         )
         status = client.get("/api/status")
-        aliases_11 = [group["alias"] for group in status.json()["groups"][:11]]
-        response_11 = client.post(
+        aliases_51 = [group["alias"] for group in status.json()["groups"][:51]]
+        response_51 = client.post(
             "/api/plan",
             headers={"Origin": "http://127.0.0.1:8787"},
-            json={"aliases": aliases_11, "message": "hello", "images": images},
+            json={"aliases": aliases_51, "message": "hello", "images": images},
         )
-        assert response_11.status_code == 422
+        assert response_51.status_code == 422
 
-        aliases_10 = [group["alias"] for group in status.json()["groups"][:10]]
-        response_10 = client.post(
+        aliases_50 = [group["alias"] for group in status.json()["groups"][:50]]
+        response_50 = client.post(
             "/api/plan",
             headers={"Origin": "http://127.0.0.1:8787"},
-            json={"aliases": aliases_10, "message": "hello", "images": images},
+            json={"aliases": aliases_50, "message": "hello", "images": images},
         )
 
-    assert response_10.status_code == 200
-    payload = response_10.json()
-    assert payload["group_count"] == 10
+    assert response_50.status_code == 200
+    payload = response_50.json()
+    assert payload["group_count"] == 50
     assert payload["image_count"] == 5
 
 
