@@ -48,6 +48,10 @@ def _env_float(name: str, default: float, *, minimum: float) -> float:
     return value
 
 
+def _env_bool(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _is_loopback(hostname: str | None) -> bool:
     if not hostname:
         return False
@@ -59,7 +63,7 @@ def _is_loopback(hostname: str | None) -> bool:
         return False
 
 
-def _validate_api_url(value: str) -> str:
+def _validate_api_url(value: str, *, allow_remote: bool) -> str:
     parsed = urlparse(value)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ConfigError("SIGNAL_API_URL must be an absolute http(s) URL")
@@ -71,9 +75,13 @@ def _validate_api_url(value: str) -> str:
         parsed.hostname.lower() == "signal-api"
     )
     if not trusted_local_host:
-        raise ConfigError(
-            "SIGNAL_API_URL must use loopback or the Compose service host 'signal-api'"
-        )
+        if not allow_remote:
+            raise ConfigError(
+                "SIGNAL_API_URL must use loopback or the Compose service host "
+                "'signal-api', or set SIGNAL_ALLOW_REMOTE_API=true"
+            )
+        if parsed.scheme != "https":
+            raise ConfigError("Remote SIGNAL_API_URL must use https")
     return value.rstrip("/")
 
 
@@ -114,7 +122,8 @@ class Settings:
             raise ConfigError("SIGNAL_NUMBER must use E.164 format, for example +420123456789")
 
         api_url = _validate_api_url(
-            os.getenv("SIGNAL_API_URL", "http://127.0.0.1:8080").strip()
+            os.getenv("SIGNAL_API_URL", "http://127.0.0.1:8080").strip(),
+            allow_remote=_env_bool("SIGNAL_ALLOW_REMOTE_API"),
         )
         raw_allowlist_sha256 = os.getenv("SIGNAL_ALLOWLIST_SHA256", "").strip().lower()
         if raw_allowlist_sha256 and not _SHA256_RE.fullmatch(raw_allowlist_sha256):

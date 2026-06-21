@@ -4,10 +4,12 @@ import base64
 import binascii
 import hashlib
 import hmac
+import os
 import secrets
 import time
 from dataclasses import dataclass
 from typing import TypeAlias
+from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 
@@ -68,11 +70,61 @@ class SignedSessionManager:
         return hmac.compare_digest(supplied_signature, expected)
 
 
+def _csv_values(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _host_from_url_or_host(value: str) -> str:
+    parsed = urlparse(value if "://" in value else f"https://{value}")
+    return (parsed.netloc or parsed.path).split("/", 1)[0]
+
+
+def trusted_hosts_from_env(env_name: str) -> list[str]:
+    hosts = ["127.0.0.1", "localhost", "testserver", "*.vercel.app"]
+    for value in _csv_values(os.getenv(env_name, "")):
+        hosts.append(_host_from_url_or_host(value))
+    for env_value in (
+        os.getenv("VERCEL_URL", ""),
+        os.getenv("VERCEL_BRANCH_URL", ""),
+        os.getenv("VERCEL_PROJECT_PRODUCTION_URL", ""),
+    ):
+        if env_value:
+            hosts.append(_host_from_url_or_host(env_value))
+    return list(dict.fromkeys(hosts))
+
+
+def allowed_origins_from_env(env_name: str, defaults: set[str]) -> set[str]:
+    origins = set(defaults)
+    origins.update(_csv_values(os.getenv(env_name, "")))
+    for env_value in (
+        os.getenv("VERCEL_URL", ""),
+        os.getenv("VERCEL_BRANCH_URL", ""),
+        os.getenv("VERCEL_PROJECT_PRODUCTION_URL", ""),
+    ):
+        if env_value:
+            origins.add(f"https://{_host_from_url_or_host(env_value)}")
+    return origins
+
+
+def _request_origins(request: Request) -> set[str]:
+    proto = (
+        request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+        or request.url.scheme
+        or "http"
+    )
+    origins: set[str] = set()
+    for header in ("x-forwarded-host", "host"):
+        host = request.headers.get(header, "").split(",", 1)[0].strip()
+        if host:
+            origins.add(f"{proto}://{host}")
+    return origins
+
+
 def require_json_same_origin(request: Request, *, allowed_origins: set[str]) -> None:
     if request.method in {"GET", "HEAD", "OPTIONS"}:
         return
     origin = request.headers.get("origin")
-    if origin not in allowed_origins:
+    if origin not in allowed_origins and origin not in _request_origins(request):
         raise HTTPException(status_code=403, detail="Invalid request origin")
     if request.headers.get("content-type", "").split(";", 1)[0] != "application/json":
         raise HTTPException(status_code=415, detail="JSON request required")

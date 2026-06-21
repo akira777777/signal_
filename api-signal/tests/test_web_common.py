@@ -8,7 +8,9 @@ from starlette.requests import Request
 
 from signal_group_sender.web_common import (
     SignedSessionManager,
+    allowed_origins_from_env,
     require_json_same_origin,
+    trusted_hosts_from_env,
     validate_image_data_urls,
 )
 
@@ -29,6 +31,8 @@ def _request(
         "method": method,
         "headers": headers,
         "path": "/api/plan",
+        "scheme": "http",
+        "server": ("127.0.0.1", 8787),
     }
     return Request(scope)
 
@@ -76,6 +80,28 @@ def test_same_origin_rejects_non_json_content_type() -> None:
             request,
             allowed_origins={"http://127.0.0.1:8787", "http://localhost:8787"},
         )
+
+
+def test_same_origin_allows_current_forwarded_origin() -> None:
+    request = _request(origin="https://signal-panel.vercel.app")
+    request.scope["headers"].extend(
+        [
+            (b"x-forwarded-proto", b"https"),
+            (b"x-forwarded-host", b"signal-panel.vercel.app"),
+        ]
+    )
+
+    require_json_same_origin(request, allowed_origins=set())
+
+
+def test_vercel_env_adds_trusted_host_and_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VERCEL_URL", "signal-panel.vercel.app")
+
+    assert "signal-panel.vercel.app" in trusted_hosts_from_env("SIGNAL_ALLOWED_HOSTS")
+    assert "https://signal-panel.vercel.app" in allowed_origins_from_env(
+        "SIGNAL_ALLOWED_ORIGINS",
+        set(),
+    )
 
 
 def test_validate_image_data_urls_returns_digest_and_data_url() -> None:

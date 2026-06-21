@@ -41,14 +41,19 @@ from signal_group_sender.state import (
 from signal_group_sender.web_common import (
     MAX_IMAGE_DATA_URL_CHARS,
     SignedSessionManager,
+    allowed_origins_from_env,
     require_json_same_origin,
+    trusted_hosts_from_env,
     validate_image_data_urls,
 )
 
 LOGGER = logging.getLogger("signal_group_sender.web")
 PACKAGE_DIRECTORY = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=PACKAGE_DIRECTORY / "templates")
-ALLOWED_ORIGINS = {"http://127.0.0.1:8787", "http://localhost:8787"}
+ALLOWED_ORIGINS = allowed_origins_from_env(
+    "SIGNAL_ALLOWED_ORIGINS",
+    {"http://127.0.0.1:8787", "http://localhost:8787"},
+)
 STATIC_ASSET_VERSION = str(
     max(
         (PACKAGE_DIRECTORY / "static" / "app.css").stat().st_mtime_ns,
@@ -191,7 +196,12 @@ def _validated_images(images: list[str]) -> tuple[list[str], tuple[str, ...]]:
 
 
 def _template_context(**extra: Any) -> dict[str, Any]:
-    return {"asset_version": STATIC_ASSET_VERSION, **extra}
+    telegram_panel_url = os.getenv("TELEGRAM_PANEL_URL", "http://127.0.0.1:8788/")
+    return {
+        "asset_version": STATIC_ASSET_VERSION,
+        "telegram_panel_url": telegram_panel_url.rstrip("/") + "/",
+        **extra,
+    }
 
 
 def create_app(
@@ -220,7 +230,7 @@ def create_app(
     )
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=["127.0.0.1", "localhost", "testserver"],
+        allowed_hosts=trusted_hosts_from_env("SIGNAL_ALLOWED_HOSTS"),
     )
     app.mount(
         "/static",

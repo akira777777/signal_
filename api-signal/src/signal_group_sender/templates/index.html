@@ -282,18 +282,18 @@
                 <h2 id="telegram-panel-heading">Telegram на той же странице</h2>
                 <p>Отдельная панель загружается прямо здесь. Можно работать с двумя каналами рядом и при необходимости открыть Telegram отдельно.</p>
               </div>
-              <a class="button secondary" href="http://127.0.0.1:8788/" target="_blank" rel="noreferrer">
+              <a class="button secondary" href="{{ telegram_panel_url }}" target="_blank" rel="noreferrer">
                 Открыть отдельно
               </a>
             </div>
             <div class="telegram-tips">
-              <div class="tip-chip">Локальный адрес: <code>127.0.0.1:8788</code></div>
+              <div class="tip-chip">Адрес: <code>{{ telegram_panel_url }}</code></div>
               <div class="tip-chip">Авторизация Telegram остаётся изолированной</div>
             </div>
             <div class="telegram-frame-shell">
               <iframe
                 class="telegram-frame"
-                src="http://127.0.0.1:8788/"
+                src="{{ telegram_panel_url }}"
                 title="Telegram Панель"
                 loading="lazy">
               </iframe>

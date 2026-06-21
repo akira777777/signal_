@@ -17,6 +17,29 @@ def test_rejects_remote_api_by_default(
         Settings.from_env(tmp_path / "missing.env")
 
 
+def test_allows_remote_https_api_with_explicit_opt_in(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("SIGNAL_NUMBER", "+420123456789")
+    monkeypatch.setenv("SIGNAL_API_URL", "https://signal.example")
+    monkeypatch.setenv("SIGNAL_ALLOW_REMOTE_API", "true")
+
+    settings = Settings.from_env(tmp_path / "missing.env")
+
+    assert settings.api_url == "https://signal.example"
+
+
+def test_rejects_remote_http_api_even_with_explicit_opt_in(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("SIGNAL_NUMBER", "+420123456789")
+    monkeypatch.setenv("SIGNAL_API_URL", "http://signal.example:8080")
+    monkeypatch.setenv("SIGNAL_ALLOW_REMOTE_API", "true")
+
+    with pytest.raises(ConfigError, match="https"):
+        Settings.from_env(tmp_path / "missing.env")
+
+
 def test_allows_compose_service_host(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
