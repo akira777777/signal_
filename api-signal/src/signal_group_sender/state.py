@@ -212,8 +212,36 @@ class DeliveryLedger:
         max_sends_per_hour: int,
         max_sends_per_day: int,
     ) -> None:
-        # Bypassed entirely to support "no limits" requirements
-        return
+        now = self._clock()
+        records = self._load()
+        hour_cutoff = now - 3600
+        day_cutoff = now - 86_400
+        hourly_count = sum(1 for record in records if record.sent_at >= hour_cutoff)
+        daily_count = sum(1 for record in records if record.sent_at >= day_cutoff)
+        if hourly_count + len(targets) > max_sends_per_hour:
+            raise RateLimitError(
+                "Hourly send quota would be exceeded: "
+                f"{hourly_count + len(targets)} > {max_sends_per_hour}"
+            )
+        if daily_count + len(targets) > max_sends_per_day:
+            raise RateLimitError(
+                "Daily send quota would be exceeded: "
+                f"{daily_count + len(targets)} > {max_sends_per_day}"
+            )
+        if per_group_cooldown_seconds <= 0:
+            return
+        cooldown_cutoff = now - per_group_cooldown_seconds
+        recently_sent = {
+            record.target_token
+            for record in records
+            if record.sent_at >= cooldown_cutoff
+            and record.status in {"sent", "unknown", "dispatching"}
+        }
+        blocked = [alias for alias, token in targets if token in recently_sent]
+        if blocked:
+            raise RateLimitError(
+                "Per-target cooldown is still active for: " + ", ".join(blocked)
+            )
 
     def record_attempt(
         self, fingerprint: str, alias: str, current_target_token: str

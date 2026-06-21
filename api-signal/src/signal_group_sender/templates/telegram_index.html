@@ -27,6 +27,12 @@
           </span>
           История
         </button>
+        <button id="nav-campaigns" class="nav-item" type="button">
+          <span class="nav-icon">
+            <svg viewBox="0 0 24 24"><path d="M3 13h4v8H3v-8zm7-10h4v18h-4V3zm7 6h4v12h-4V9z"/></svg>
+          </span>
+          Кампании
+        </button>
         <button id="logout-button" class="nav-item" type="button">
           <span class="nav-icon">
             <svg viewBox="0 0 24 24"><path d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
@@ -114,11 +120,28 @@
           <div class="section-heading">
             <div>
               <h2 id="message-heading">Сообщение</h2>
-              <span>Текст не сохраняется в журнале</span>
+              <span>Текст активной кампании хранится локально до завершения</span>
             </div>
             <span id="char-count">0 символов</span>
           </div>
           <textarea id="message" placeholder="Введите сообщение"></textarea>
+          <div class="ab-panel">
+            <label class="select-all">
+              <input id="ab-toggle" type="checkbox">
+              A/B-тест
+            </label>
+            <span>Выбранные чаты будут разделены поровну между вариантами A и B.</span>
+          </div>
+          <div id="ab-fields" class="hidden">
+            <div class="section-heading compact">
+              <div>
+                <h2>Вариант B</h2>
+                <span>Текст не сохраняется в журнале</span>
+              </div>
+              <span id="char-count-b">0 символов</span>
+            </div>
+            <textarea id="message-b" placeholder="Введите второй вариант сообщения"></textarea>
+          </div>
           <div class="attachments">
             <div class="attachments-heading">
               <div>
@@ -150,7 +173,7 @@
                 <option value="3600">1 час</option>
               </select>
             </label>
-            <small>Для сообщений с вложениями Telegram ограничивает подпись 1024 символами.</small>
+            <small>Интервал выполняется сервером после каждой завершённой отправки. Вкладку можно закрыть.</small>
           </div>
           <div id="countdown-box" class="countdown-box hidden">
             <div>
@@ -234,6 +257,25 @@
               </table>
             </div>
           </div>
+        </section>
+      </div>
+
+      <div id="campaigns-view" class="workspace hidden">
+        <section class="groups-panel" style="grid-column: span 2; min-height: 480px;" aria-labelledby="campaigns-heading">
+          <div class="section-heading">
+            <div>
+              <h2 id="campaigns-heading">Кампании</h2>
+              <span>Доставка, отклики и активность по вариантам</span>
+            </div>
+            <button id="campaigns-refresh-button" class="button secondary" type="button">Обновить</button>
+          </div>
+          <div id="campaigns-empty" class="empty-state">
+            <div class="empty-state-icon">
+              <svg viewBox="0 0 24 24"><path d="M4 19V5m0 14h16M8 17V9m5 8V5m5 12v-6"/></svg>
+            </div>
+            Кампаний пока нет.
+          </div>
+          <div id="campaigns-list" class="campaigns-list hidden"></div>
         </section>
       </div>
 

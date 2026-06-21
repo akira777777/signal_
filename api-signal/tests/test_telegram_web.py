@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import base64
+import time
 
 import pytest
 from fastapi.testclient import TestClient
 
 from signal_group_sender.telegram_client import TelegramApiClient
 from signal_group_sender.telegram_config import TelegramSettings
-from signal_group_sender.telegram_service import TelegramBroadcastService
+from signal_group_sender.telegram_service import (
+    TelegramBroadcastResult,
+    TelegramBroadcastService,
+)
+from signal_group_sender.telegram_targets import ChatTarget
 from signal_group_sender.telegram_web import _validated_attachments, create_app
 
 
@@ -147,6 +152,82 @@ def test_stats_endpoint_works(
 
     assert response.status_code == 200
     assert response.json()["success_rate"] == 100
+
+
+def test_telegram_server_campaign_runs_repeats_without_browser_timer(
+    telegram_settings: TelegramSettings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(TelegramApiClient, "is_authorized", lambda self: True)
+    monkeypatch.setattr(
+        TelegramApiClient,
+        "list_dialogs",
+        lambda self: [
+            {"id": "1001", "name": "Ops", "kind": "group", "available": True}
+        ],
+    )
+    delivery_scopes: list[str] = []
+
+    def fake_send(
+        self: TelegramBroadcastService,
+        targets: list[ChatTarget],
+        message: str,
+        **kwargs: object,
+    ) -> list[TelegramBroadcastResult]:
+        del self, message
+        delivery_scopes.append(str(kwargs["delivery_scope"]))
+        return [
+            TelegramBroadcastResult(alias=target.alias, status="sent")
+            for target in targets
+        ]
+
+    monkeypatch.setattr(TelegramBroadcastService, "send", fake_send)
+
+    with TestClient(create_app(telegram_settings, "correct-horse-battery")) as client:
+        client.post(
+            "/api/login",
+            headers={"Origin": "http://127.0.0.1:8788"},
+            json={"password": "correct-horse-battery"},
+        )
+        status = client.get("/api/status")
+        alias = status.json()["chats"][0]["alias"]
+        plan = client.post(
+            "/api/plan",
+            headers={"Origin": "http://127.0.0.1:8788"},
+            json={
+                "aliases": [alias],
+                "message": "hello",
+                "repeat_count": 2,
+                "interval_seconds": 0,
+            },
+        ).json()
+        start = client.post(
+            "/api/campaign",
+            headers={"Origin": "http://127.0.0.1:8788"},
+            json={
+                "aliases": [alias],
+                "message": "hello",
+                "confirm_token": plan["confirm_token"],
+                "repeat_count": 2,
+                "interval_seconds": 0,
+            },
+        )
+        assert start.status_code == 200
+
+        campaign = start.json()
+        for _ in range(20):
+            campaign = client.get("/api/campaign").json()
+            if campaign["status"] == "completed":
+                break
+            time.sleep(0.05)
+
+    assert campaign["status"] == "completed"
+    assert campaign["current_round"] == 2
+    assert [result["round_index"] for result in campaign["results"]] == [1, 2]
+    assert delivery_scopes == [
+        f"{plan['confirm_token']}:1",
+        f"{plan['confirm_token']}:2",
+    ]
 
 
 def test_validates_telegram_png_attachment() -> None:

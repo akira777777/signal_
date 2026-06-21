@@ -10,7 +10,12 @@ from signal_group_sender.state import (
     DeliveryLedger,
     DeliveryRecord,
     delivery_fingerprint,
-    target_token,
+)
+from signal_group_sender.state import (
+    target_token as build_target_token,
+)
+from signal_group_sender.telegram_campaigns import (
+    TelegramCampaignLedger,
 )
 from signal_group_sender.telegram_client import (
     TelegramApiClient,
@@ -31,6 +36,7 @@ class TelegramBroadcastResult:
     alias: str
     status: str
     detail: str = ""
+    message_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +59,18 @@ def build_broadcast_plan(
         raise TelegramBroadcastError("Message must not be empty")
     if not targets:
         raise TelegramBroadcastError("At least one chat must be selected")
+    if len(targets) > settings.max_chats_per_run:
+        raise TelegramBroadcastError(
+            f"Too many chats selected: {len(targets)} > {settings.max_chats_per_run}"
+        )
+    if len(message) > settings.max_message_chars:
+        raise TelegramBroadcastError(
+            f"Message is too long: {len(message)} > {settings.max_message_chars}"
+        )
+    if attachment_digests and len(message) > 1024:
+        raise TelegramBroadcastError(
+            "Telegram captions with attachments must not exceed 1024 characters"
+        )
     if repeat_count < 1:
         raise TelegramBroadcastError("Repeat count must be at least 1")
     if interval_seconds < 0:
@@ -106,6 +124,7 @@ class TelegramBroadcastService:
         client: TelegramApiClient,
         ledger: DeliveryLedger,
         fingerprint_key: bytes,
+        campaign_ledger: TelegramCampaignLedger | None = None,
         *,
         sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -113,6 +132,7 @@ class TelegramBroadcastService:
         self._client = client
         self._ledger = ledger
         self._fingerprint_key = fingerprint_key
+        self._campaign_ledger = campaign_ledger
         self._sleeper = sleeper
 
     def get_history(self) -> list[DeliveryRecord]:
@@ -135,6 +155,9 @@ class TelegramBroadcastService:
         repeat_count: int = 1,
         interval_seconds: int = 0,
         delivery_scope: str = "",
+        campaign_id: str | None = None,
+        variant_id: str = "A",
+        round_index: int = 1,
         attachments: list[TelegramAttachment] | None = None,
         attachment_digests: tuple[str, ...] = (),
     ) -> list[TelegramBroadcastResult]:
@@ -169,7 +192,7 @@ class TelegramBroadcastService:
             for target in targets
         }
         target_tokens = {
-            target.alias: target_token(
+            target.alias: build_target_token(
                 self._fingerprint_key,
                 self._settings.phone_number,
                 target.peer_id,
@@ -226,7 +249,7 @@ class TelegramBroadcastService:
                 target_tokens[target.alias],
             )
             try:
-                self._client.send_chat(
+                send_result = self._client.send_chat(
                     target.peer_id,
                     message,
                     attachments=attachments,
@@ -251,5 +274,46 @@ class TelegramBroadcastService:
             results_by_alias[target.alias] = TelegramBroadcastResult(
                 alias=target.alias,
                 status="sent",
+                message_ids=tuple(
+                    int(value) for value in send_result.get("message_ids", [])
+                ),
             )
-        return [results_by_alias[target.alias] for target in targets]
+        results = [results_by_alias[target.alias] for target in targets]
+        if campaign_id and self._campaign_ledger is not None:
+            self._record_campaign_results(
+                campaign_id=campaign_id,
+                targets=targets,
+                target_tokens=target_tokens,
+                variant_id=variant_id,
+                round_index=round_index,
+                results=results,
+                attachment_count=len(attachments or []),
+            )
+        return results
+
+    def _record_campaign_results(
+        self,
+        *,
+        campaign_id: str,
+        targets: list[ChatTarget],
+        target_tokens: dict[str, str],
+        variant_id: str,
+        round_index: int,
+        results: list[TelegramBroadcastResult],
+        attachment_count: int,
+    ) -> None:
+        assert self._campaign_ledger is not None
+        by_alias = {result.alias: result for result in results}
+        for target in targets:
+            result = by_alias[target.alias]
+            self._campaign_ledger.record_delivery(
+                campaign_id=campaign_id,
+                alias=target.alias,
+                target_token_value=target_tokens[target.alias],
+                peer_id=target.peer_id,
+                variant_id=variant_id,
+                round_index=round_index,
+                status=result.status,
+                message_ids=result.message_ids,
+                attachment_count=attachment_count,
+            )

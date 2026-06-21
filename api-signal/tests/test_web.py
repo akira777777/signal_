@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,7 +9,7 @@ from fastapi.testclient import TestClient
 from signal_group_sender import web
 from signal_group_sender.client import SignalApiClient
 from signal_group_sender.config import Settings
-from signal_group_sender.service import BroadcastError, BroadcastService
+from signal_group_sender.service import BroadcastError, BroadcastResult, BroadcastService
 from signal_group_sender.state import DeliveryRecord
 from signal_group_sender.web import _validated_attachments, create_app
 
@@ -279,6 +280,77 @@ def test_stats_requires_auth(settings: Settings) -> None:
         response = client.get("/api/stats")
 
     assert response.status_code == 401
+
+
+def test_server_campaign_runs_repeats_without_browser_timer(
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(SignalApiClient, "list_accounts", lambda self: [settings.number])
+    monkeypatch.setattr(
+        SignalApiClient,
+        "list_groups",
+        lambda self: [{"id": "group.abc=", "name": "Ops", "blocked": False}],
+    )
+    delivery_scopes: list[str] = []
+
+    def fake_send(
+        self: BroadcastService,
+        targets: object,
+        message: str,
+        **kwargs: object,
+    ) -> list[BroadcastResult]:
+        del self, message
+        delivery_scopes.append(str(kwargs["delivery_scope"]))
+        return [BroadcastResult(alias=target.alias, status="sent") for target in targets]
+
+    monkeypatch.setattr(BroadcastService, "send", fake_send)
+
+    with TestClient(create_app(settings, "correct-horse-battery")) as client:
+        client.post(
+            "/api/login",
+            headers={"Origin": "http://127.0.0.1:8787"},
+            json={"password": "correct-horse-battery"},
+        )
+        status = client.get("/api/status")
+        alias = status.json()["groups"][0]["alias"]
+        plan = client.post(
+            "/api/plan",
+            headers={"Origin": "http://127.0.0.1:8787"},
+            json={
+                "aliases": [alias],
+                "message": "hello",
+                "repeat_count": 2,
+                "interval_seconds": 0,
+            },
+        ).json()
+        start = client.post(
+            "/api/campaign",
+            headers={"Origin": "http://127.0.0.1:8787"},
+            json={
+                "aliases": [alias],
+                "message": "hello",
+                "confirm_token": plan["confirm_token"],
+                "repeat_count": 2,
+                "interval_seconds": 0,
+            },
+        )
+        assert start.status_code == 200
+
+        campaign = start.json()
+        for _ in range(20):
+            campaign = client.get("/api/campaign").json()
+            if campaign["status"] == "completed":
+                break
+            time.sleep(0.05)
+
+    assert campaign["status"] == "completed"
+    assert campaign["current_round"] == 2
+    assert [result["round_index"] for result in campaign["results"]] == [1, 2]
+    assert delivery_scopes == [
+        f"{plan['confirm_token']}:1",
+        f"{plan['confirm_token']}:2",
+    ]
 
 
 def test_telegram_panel_status_requires_auth(settings: Settings) -> None:

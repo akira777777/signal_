@@ -3,8 +3,10 @@ const state = {
   selected: new Set(),
   plan: null,
   campaign: null,
+  campaignPoll: null,
   attachments: [],
   history: [],
+  campaigns: [],
   phone: "",
   authorized: false,
   savedDraftSelected: null,
@@ -52,15 +54,20 @@ const elements = {
   moonIcon: document.querySelector("#theme-toggle .moon-icon"),
   navBroadcast: document.querySelector("#nav-broadcast"),
   navHistory: document.querySelector("#nav-history"),
+  navCampaigns: document.querySelector("#nav-campaigns"),
   viewTitle: document.querySelector("#view-title"),
   viewSubtitle: document.querySelector("#view-subtitle"),
   broadcastView: document.querySelector("#broadcast-view"),
   historyView: document.querySelector("#history-view"),
+  campaignsView: document.querySelector("#campaigns-view"),
   historySearch: document.querySelector("#history-search"),
   historyStatusFilter: document.querySelector("#history-status-filter"),
   historyEmpty: document.querySelector("#history-empty"),
   historyTableWrapper: document.querySelector("#history-table-wrapper"),
   historyTableBody: document.querySelector("#history-table-body"),
+  campaignsRefreshButton: document.querySelector("#campaigns-refresh-button"),
+  campaignsEmpty: document.querySelector("#campaigns-empty"),
+  campaignsList: document.querySelector("#campaigns-list"),
   toastContainer: document.querySelector("#toast-container"),
   progressContainer: document.querySelector("#progress-container"),
   progressLabel: document.querySelector("#progress-label"),
@@ -77,6 +84,10 @@ const elements = {
   authPassword: document.querySelector("#telegram-password"),
   authStatus: document.querySelector("#telegram-auth-status"),
   submitAuthButton: document.querySelector("#submit-auth-button"),
+  abToggle: document.querySelector("#ab-toggle"),
+  abFields: document.querySelector("#ab-fields"),
+  messageB: document.querySelector("#message-b"),
+  charCountB: document.querySelector("#char-count-b"),
 };
 
 function escapeHtml(value) {
@@ -159,6 +170,28 @@ function campaignOptions() {
   };
 }
 
+function selectedAliasesInChatOrder() {
+  return state.chats
+    .filter((chat) => state.selected.has(chat.alias))
+    .map((chat) => chat.alias);
+}
+
+function isAbEnabled() {
+  return elements.abToggle.checked;
+}
+
+function splitVariantAliases() {
+  const aliases = selectedAliasesInChatOrder();
+  if (!isAbEnabled()) {
+    return [{variant_id: "A", message: elements.message.value, aliases}];
+  }
+  const midpoint = Math.ceil(aliases.length / 2);
+  return [
+    {variant_id: "A", message: elements.message.value, aliases: aliases.slice(0, midpoint)},
+    {variant_id: "B", message: elements.messageB.value, aliases: aliases.slice(midpoint)},
+  ].filter((variant) => variant.aliases.length > 0);
+}
+
 function renderAttachmentPreview(attachment) {
   if (attachment.type === "video/mp4") {
     return `<video src="${attachment.dataUrl}" muted playsinline preload="metadata"></video>`;
@@ -214,7 +247,9 @@ function updateSelection() {
   const availableCount = state.chats.filter((chat) => chat.available).length;
   elements.selectionCount.textContent = `${state.selected.size} выбрано`;
   elements.selectAll.checked = availableCount > 0 && state.selected.size === availableCount;
-  elements.planButton.disabled = !state.authorized || state.selected.size === 0 || (!elements.message.value.trim() && state.attachments.length === 0);
+  const hasPrimary = elements.message.value.trim() || state.attachments.length > 0;
+  const hasVariantB = !isAbEnabled() || elements.messageB.value.trim() || state.attachments.length > 0;
+  elements.planButton.disabled = !state.authorized || state.selected.size === 0 || !hasPrimary || !hasVariantB;
   invalidatePlan();
   saveDraft();
 }
@@ -330,15 +365,36 @@ async function createPlan() {
   showError();
   elements.planButton.disabled = true;
   try {
-    state.plan = await api("/api/plan", {
-      method: "POST",
-      body: JSON.stringify({
-        aliases: [...state.selected],
-        message: elements.message.value,
-        attachments: state.attachments.map((attachment) => attachment.dataUrl),
-        ...campaignOptions(),
-      }),
-    });
+    const variants = splitVariantAliases();
+    const options = campaignOptions();
+    const attachments = state.attachments.map((attachment) => attachment.dataUrl);
+    const plannedVariants = [];
+    for (const variant of variants) {
+      const plan = await api("/api/plan", {
+        method: "POST",
+        body: JSON.stringify({
+          aliases: variant.aliases,
+          message: variant.message,
+          attachments,
+          ...options,
+        }),
+      });
+      plannedVariants.push({...variant, ...plan});
+    }
+    if (plannedVariants.length === 1 && !isAbEnabled()) {
+      state.plan = plannedVariants[0];
+    } else {
+      state.plan = {
+        ab: true,
+        variants: plannedVariants,
+        chat_count: plannedVariants.reduce((sum, item) => sum + item.chat_count, 0),
+        repeat_count: options.repeat_count,
+        interval_seconds: options.interval_seconds,
+        attachment_count: plannedVariants[0]?.attachment_count || 0,
+        confirm_token: plannedVariants.map((item) => `${item.variant_id}:${item.confirm_token}`).join(" "),
+        capacity_warning: plannedVariants.find((item) => item.capacity_warning)?.capacity_warning || null,
+      };
+    }
     elements.planGroups.textContent = `${state.plan.chat_count} ${pluralize(state.plan.chat_count, "чат", "чата", "чатов")} × ${state.plan.repeat_count}`;
     elements.confirmToken.textContent = state.plan.confirm_token;
     elements.planAttachments.textContent = String(state.plan.attachment_count);
@@ -348,6 +404,9 @@ async function createPlan() {
         ? `Запустить ${state.plan.repeat_count} ${pluralize(state.plan.repeat_count, "отправку", "отправки", "отправок")}`
         : `Отправить в ${state.plan.chat_count} ${pluralize(state.plan.chat_count, "чат", "чата", "чатов")}`;
     elements.sendButton.disabled = false;
+    if (state.plan.capacity_warning) {
+      showToast(state.plan.capacity_warning, "info", 7000);
+    }
   } catch (error) {
     showError(error.message);
   } finally {
@@ -388,27 +447,36 @@ function formatCountdown(seconds) {
     .join(":");
 }
 
-function waitInterval(seconds, nextRound) {
-  return new Promise((resolve) => {
-    const deadline = Date.now() + seconds * 1000;
-    elements.countdownLabel.textContent = `Цикл ${nextRound} начнётся через`;
-    elements.countdownBox.classList.remove("hidden");
-    const tick = () => {
-      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-      elements.countdownValue.textContent = formatCountdown(remaining);
-      if (remaining === 0 || state.campaign?.cancelled) {
-        clearInterval(timer);
-        elements.countdownBox.classList.add("hidden");
-        resolve();
-      }
-    };
-    const timer = setInterval(tick, 250);
-    tick();
-  });
+function isCampaignActive(campaign) {
+  return Boolean(campaign && campaign.cancelled === false);
+}
+
+function renderCampaignStatus(campaign) {
+  state.campaign = campaign || null;
+  if (campaign?.results?.length) {
+    renderResults(campaign.results);
+  }
+}
+
+function stopCampaignPolling() {
+  if (state.campaignPoll) {
+    clearInterval(state.campaignPoll);
+    state.campaignPoll = null;
+  }
+}
+
+async function refreshCampaignStatus() {
+  return state.campaign;
+}
+
+function startCampaignPolling() {
+  stopCampaignPolling();
 }
 
 function setCampaignControls(disabled) {
   elements.message.disabled = disabled;
+  elements.messageB.disabled = disabled;
+  elements.abToggle.disabled = disabled;
   elements.attachmentInput.disabled = disabled;
   elements.attachmentPreviews.querySelectorAll("button").forEach((button) => {
     button.disabled = disabled;
@@ -424,29 +492,42 @@ async function runCampaign() {
   if (!state.plan) return;
   elements.dialog.close();
   showError();
-  const campaign = {cancelled: false, results: []};
+  const campaign = {cancelled: false, results: [], campaignId: null};
   state.campaign = campaign;
   setCampaignControls(true);
   try {
+    const plannedVariants = state.plan.variants || [state.plan];
     for (let round = 1; round <= state.plan.repeat_count; round += 1) {
       if (campaign.cancelled) break;
-      const payload = await api("/api/send", {
-        method: "POST",
-        body: JSON.stringify({
-          aliases: [...state.selected],
-          message: elements.message.value,
-          attachments: state.attachments.map((attachment) => attachment.dataUrl),
-          confirm_token: state.plan.confirm_token,
-          retry_unknown: false,
-          repeat_count: state.plan.repeat_count,
-          interval_seconds: state.plan.interval_seconds,
+      for (const variant of plannedVariants) {
+        const payload = await api("/api/send", {
+          method: "POST",
+          body: JSON.stringify({
+            aliases: variant.aliases,
+            message: variant.message,
+            attachments: state.attachments.map((attachment) => attachment.dataUrl),
+            confirm_token: variant.confirm_token,
+            retry_unknown: false,
+            repeat_count: state.plan.repeat_count,
+            interval_seconds: state.plan.interval_seconds,
+            round_index: round,
+            campaign_id: campaign.campaignId,
+            variant_id: variant.variant_id || "A",
+          }),
+        });
+        campaign.campaignId = payload.campaign_id;
+        campaign.results.push(...payload.results.map((result) => ({
+          ...result,
           round_index: round,
-        }),
-      });
-      campaign.results.push(...payload.results.map((result) => ({...result, round_index: round})));
-      renderResults(campaign.results);
+          variant_id: variant.variant_id || "A",
+        })));
+        renderCampaignStatus(campaign);
+        if (!payload.complete) break;
+      }
       updateProgress(round, state.plan.repeat_count);
-      if (!payload.complete) break;
+      if (campaign.results.some((result) =>
+        result.round_index === round && !["sent", "already_sent"].includes(result.status)
+      )) break;
       if (round < state.plan.repeat_count) {
         await waitInterval(state.plan.interval_seconds, round + 1);
       }
@@ -464,6 +545,7 @@ async function runCampaign() {
     invalidatePlan();
     updateSelection();
     loadStats().catch(() => {});
+    loadCampaigns().catch(() => {});
   }
 }
 
@@ -564,18 +646,32 @@ function switchView(viewName) {
   if (viewName === "broadcast") {
     elements.navBroadcast.classList.add("active");
     elements.navHistory.classList.remove("active");
+    elements.navCampaigns.classList.remove("active");
     elements.broadcastView.classList.remove("hidden");
     elements.historyView.classList.add("hidden");
+    elements.campaignsView.classList.add("hidden");
     elements.viewTitle.textContent = "Новая рассылка";
     elements.viewSubtitle.textContent = "Выберите чаты, проверьте сообщение и подтвердите отправку.";
-  } else {
+  } else if (viewName === "history") {
     elements.navBroadcast.classList.remove("active");
     elements.navHistory.classList.add("active");
+    elements.navCampaigns.classList.remove("active");
     elements.broadcastView.classList.add("hidden");
     elements.historyView.classList.remove("hidden");
+    elements.campaignsView.classList.add("hidden");
     elements.viewTitle.textContent = "История отправлений";
     elements.viewSubtitle.textContent = "Записи прошлых попыток и текущего сеанса.";
     loadHistory().catch(() => {});
+  } else {
+    elements.navBroadcast.classList.remove("active");
+    elements.navHistory.classList.remove("active");
+    elements.navCampaigns.classList.add("active");
+    elements.broadcastView.classList.add("hidden");
+    elements.historyView.classList.add("hidden");
+    elements.campaignsView.classList.remove("hidden");
+    elements.viewTitle.textContent = "Кампании";
+    elements.viewSubtitle.textContent = "Отклики, активность и сравнение вариантов.";
+    loadCampaigns().catch(() => {});
   }
 }
 
@@ -623,9 +719,73 @@ function renderHistory() {
   }
 }
 
+async function loadCampaigns() {
+  try {
+    state.campaigns = await api("/api/campaigns");
+    renderCampaigns();
+  } catch (error) {
+    showError(error.message);
+  }
+}
+
+function renderCampaigns() {
+  if (!state.campaigns.length) {
+    elements.campaignsEmpty.classList.remove("hidden");
+    elements.campaignsList.classList.add("hidden");
+    elements.campaignsList.innerHTML = "";
+    return;
+  }
+  elements.campaignsEmpty.classList.add("hidden");
+  elements.campaignsList.classList.remove("hidden");
+  elements.campaignsList.innerHTML = state.campaigns.map((campaign) => {
+    const variants = (campaign.variants || []).map((variant) => `
+      <span class="variant-pill">
+        ${escapeHtml(variant.variant_id)}: replies ${escapeHtml(String(variant.reply_rate))}%, activity ${escapeHtml(String(variant.activity_rate))}%
+      </span>
+    `).join("");
+    return `
+      <article class="campaign-card">
+        <header>
+          <div>
+            <h3>${escapeHtml(campaign.campaign_id)}</h3>
+            <small>${escapeHtml(new Date(campaign.created_at * 1000).toLocaleString("ru-RU"))}</small>
+          </div>
+          <button class="button secondary" type="button" data-refresh-campaign="${escapeHtml(campaign.campaign_id)}">
+            Пересканировать
+          </button>
+        </header>
+        <div class="campaign-metrics">
+          <div class="campaign-metric"><span>Доставлено</span><strong>${escapeHtml(String(campaign.sent))}</strong></div>
+          <div class="campaign-metric"><span>Ошибки</span><strong>${escapeHtml(String(campaign.failed))}</strong></div>
+          <div class="campaign-metric"><span>Неизвестно</span><strong>${escapeHtml(String(campaign.unknown))}</strong></div>
+          <div class="campaign-metric"><span>Reply rate</span><strong>${escapeHtml(String(campaign.reply_rate))}%</strong></div>
+          <div class="campaign-metric"><span>Activity rate</span><strong>${escapeHtml(String(campaign.activity_rate))}%</strong></div>
+        </div>
+        <div class="variant-list">${variants || '<span class="variant-pill">Нет вариантов</span>'}</div>
+      </article>
+    `;
+  }).join("");
+}
+
+async function refreshCampaignEngagement(campaignId) {
+  try {
+    await api(`/api/campaigns/${encodeURIComponent(campaignId)}/refresh-engagement`, {
+      method: "POST",
+      body: "{}",
+    });
+    showToast("Отклики обновлены", "success");
+    await loadCampaigns();
+  } catch (error) {
+    showError(error.message);
+    showToast(error.message, "error");
+  }
+}
+
 function saveDraft() {
   const draft = {
     message: elements.message.value,
+    messageB: elements.messageB.value,
+    ab: elements.abToggle.checked,
     repeatCount: elements.repeatCount.value,
     interval: elements.intervalSelect.value,
     selected: [...state.selected],
@@ -641,6 +801,14 @@ function restoreDraft() {
     if (draft.message) {
       elements.message.value = draft.message;
       elements.charCount.textContent = `${draft.message.length} символов`;
+    }
+    if (draft.messageB) {
+      elements.messageB.value = draft.messageB;
+      elements.charCountB.textContent = `${draft.messageB.length} символов`;
+    }
+    if (draft.ab) {
+      elements.abToggle.checked = true;
+      elements.abFields.classList.remove("hidden");
     }
     if (draft.repeatCount) {
       elements.repeatCount.value = draft.repeatCount;
@@ -758,6 +926,7 @@ function refreshDashboard() {
     console.error("Telegram status bootstrap failed:", error);
   });
   loadStats().catch(() => {});
+  loadCampaigns().catch(() => {});
 }
 
 elements.refresh.addEventListener("click", () => {
@@ -765,6 +934,9 @@ elements.refresh.addEventListener("click", () => {
   loadStats().catch(() => {});
   if (!elements.historyView.classList.contains("hidden")) {
     loadHistory().catch(() => {});
+  }
+  if (!elements.campaignsView.classList.contains("hidden")) {
+    loadCampaigns().catch(() => {});
   }
 });
 // Debounced search — avoids re-render on every keypress
@@ -780,6 +952,14 @@ elements.selectAll.addEventListener("change", () => {
 });
 elements.message.addEventListener("input", () => {
   elements.charCount.textContent = `${elements.message.value.length} символов`;
+  updateSelection();
+});
+elements.messageB.addEventListener("input", () => {
+  elements.charCountB.textContent = `${elements.messageB.value.length} символов`;
+  updateSelection();
+});
+elements.abToggle.addEventListener("change", () => {
+  elements.abFields.classList.toggle("hidden", !elements.abToggle.checked);
   updateSelection();
 });
 elements.attachmentInput.addEventListener("change", async () => {
@@ -810,7 +990,10 @@ elements.confirmSendButton.addEventListener("click", (event) => {
   runCampaign();
 });
 elements.cancelTimerButton.addEventListener("click", () => {
-  if (state.campaign) state.campaign.cancelled = true;
+  if (state.campaign) {
+    state.campaign.cancelled = true;
+    showToast("Остановка кампании запрошена", "info");
+  }
 });
 elements.authButton.addEventListener("click", openTelegramAuth);
 elements.submitAuthButton.addEventListener("click", submitTelegramAuth);
@@ -821,8 +1004,16 @@ elements.logoutButton.addEventListener("click", async () => {
 elements.themeToggle.addEventListener("click", toggleTheme);
 elements.navBroadcast.addEventListener("click", () => switchView("broadcast"));
 elements.navHistory.addEventListener("click", () => switchView("history"));
+elements.navCampaigns.addEventListener("click", () => switchView("campaigns"));
 elements.historySearch.addEventListener("input", renderHistory);
 elements.historyStatusFilter.addEventListener("change", renderHistory);
+elements.campaignsRefreshButton.addEventListener("click", () => loadCampaigns().catch(() => {}));
+elements.campaignsList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-refresh-campaign]");
+  if (button) {
+    refreshCampaignEngagement(button.dataset.refreshCampaign);
+  }
+});
 
 document.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {

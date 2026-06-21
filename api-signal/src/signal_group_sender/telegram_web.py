@@ -6,6 +6,7 @@ import logging
 import os
 import threading
 import time
+import uuid
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
@@ -20,12 +21,14 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from signal_group_sender.campaign import CampaignError, PersistentCampaignManager
 from signal_group_sender.locking import LockError, RunLock
 from signal_group_sender.state import (
     DeliveryLedger,
     StateError,
     load_or_create_hmac_key,
 )
+from signal_group_sender.telegram_campaigns import TelegramCampaignLedger
 from signal_group_sender.telegram_client import (
     TelegramApiClient,
     TelegramApiError,
@@ -95,6 +98,8 @@ class SendRequest(PlanRequest):
     confirm_token: str = Field(pattern=r"^[0-9a-f]{16}$")
     retry_unknown: bool = False
     round_index: int = Field(default=1, ge=1, le=999999)
+    campaign_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_.:-]{1,64}$")
+    variant_id: str = Field(default="A", min_length=1, max_length=16)
 
 
 class LoginRequest(BaseModel):
@@ -129,6 +134,16 @@ class TelegramWebContext:
         self._auth_cache: bool | None = None
         self._auth_cache_ts: float = 0.0
         self._auth_cache_lock = threading.Lock()
+        self._campaign_manager = PersistentCampaignManager(
+            self._campaign_file,
+            self._send_campaign_round,
+        )
+
+    @property
+    def _campaign_file(self) -> Path:
+        return self.settings.state_file.with_name(
+            f"{self.settings.state_file.stem}-campaign.json"
+        )
 
     def client(self) -> TelegramApiClient:
         return TelegramApiClient(self.settings)
@@ -141,7 +156,112 @@ class TelegramWebContext:
             duplicate_window_seconds=self.settings.duplicate_window_seconds,
         )
         ledger.initialize(allow_create=not self.settings.state_file.exists())
-        return TelegramBroadcastService(self.settings, self.client(), ledger, key)
+        return TelegramBroadcastService(
+            self.settings,
+            self.client(),
+            ledger,
+            key,
+            self.campaign_ledger(),
+        )
+
+    def campaign_ledger(self) -> TelegramCampaignLedger:
+        path = self.settings.state_file.with_name(
+            f"{self.settings.state_file.stem}.campaigns.json"
+        )
+        ledger = TelegramCampaignLedger(path, integrity_key=self.session_secret)
+        ledger.initialize()
+        return ledger
+
+    def start_campaign(
+        self,
+        *,
+        targets: list[ChatTarget],
+        message: str,
+        confirm_token: str,
+        retry_unknown: bool,
+        repeat_count: int,
+        interval_seconds: int,
+        attachments: list[str],
+        attachment_digests: tuple[str, ...],
+    ) -> dict[str, Any]:
+        plan = build_broadcast_plan(
+            self.settings,
+            targets,
+            message,
+            repeat_count=repeat_count,
+            interval_seconds=interval_seconds,
+            attachment_digests=attachment_digests,
+        )
+        verify_chat_targets(self.client(), targets)
+        if confirm_token != plan.confirm_token:
+            raise TelegramBroadcastError(
+                f"Live send requires --confirm-token {plan.confirm_token}"
+            )
+        return self._campaign_manager.start(
+            {
+                "transport": "telegram",
+                "targets": [
+                    {
+                        "alias": target.alias,
+                        "peer_id": target.peer_id,
+                        "description": target.description,
+                        "kind": target.kind,
+                    }
+                    for target in targets
+                ],
+                "message": message,
+                "confirm_token": confirm_token,
+                "retry_unknown": retry_unknown,
+                "repeat_count": repeat_count,
+                "interval_seconds": interval_seconds,
+                "attachments": attachments,
+                "attachment_digests": list(attachment_digests),
+            }
+        )
+
+    def campaign_status(self) -> dict[str, Any]:
+        return self._campaign_manager.status()
+
+    def cancel_campaign(self) -> dict[str, Any]:
+        return self._campaign_manager.cancel()
+
+    def resume_campaign(self) -> None:
+        self._campaign_manager.resume_active()
+
+    def shutdown_campaign(self) -> None:
+        self._campaign_manager.shutdown()
+
+    def _send_campaign_round(
+        self,
+        snapshot: dict[str, Any],
+        round_index: int,
+    ) -> list[dict[str, Any]]:
+        targets = [
+            ChatTarget(
+                str(item["alias"]),
+                str(item["peer_id"]),
+                str(item.get("description", "")),
+                str(item.get("kind", "")),
+            )
+            for item in snapshot["targets"]
+        ]
+        attachments, attachment_digests = _validated_attachments(
+            list(snapshot.get("attachments", []))
+        )
+        with RunLock(self.settings.lock_file):
+            results = self.service().send(
+                targets,
+                str(snapshot["message"]),
+                confirm_count=len(targets),
+                confirm_token=str(snapshot["confirm_token"]),
+                retry_unknown=bool(snapshot.get("retry_unknown")),
+                repeat_count=int(snapshot["repeat_count"]),
+                interval_seconds=int(snapshot["interval_seconds"]),
+                delivery_scope=f"{snapshot['confirm_token']}:{round_index}",
+                attachments=attachments,
+                attachment_digests=attachment_digests,
+            )
+        return [asdict(result) for result in results]
 
     def live_targets(self) -> dict[str, ChatTarget]:
         now = time.monotonic()
@@ -306,7 +426,9 @@ def create_app(
             settings or TelegramSettings.from_env(env_file),
             password,
         )
+        app.state.context.resume_campaign()
         yield
+        app.state.context.shutdown_campaign()
 
     app = FastAPI(
         title="Telegram Панель",
@@ -427,6 +549,49 @@ def create_app(
     ) -> dict[str, Any]:
         return context.service().get_stats()
 
+    @app.get("/api/campaigns")
+    def get_campaigns(
+        context: ContextDependency,
+        _: AuthDependency,
+    ) -> list[dict[str, Any]]:
+        return context.campaign_ledger().get_campaigns()
+
+    @app.get("/api/campaigns/{campaign_id}")
+    def get_campaign(
+        campaign_id: str,
+        context: ContextDependency,
+        _: AuthDependency,
+    ) -> dict[str, Any]:
+        campaign = context.campaign_ledger().get_campaign(campaign_id)
+        if campaign is None:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        return campaign
+
+    @app.post("/api/campaigns/{campaign_id}/refresh-engagement")
+    def refresh_campaign_engagement(
+        campaign_id: str,
+        context: ContextDependency,
+        _: OriginDependency,
+        __: AuthDependency,
+    ) -> dict[str, Any]:
+        ledger = context.campaign_ledger()
+        records = ledger.delivery_records(campaign_id)
+        if not records:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        updates = context.client().collect_engagement(records)
+        ledger.update_engagement(campaign_id, updates)
+        campaign = ledger.get_campaign(campaign_id)
+        if campaign is None:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        return campaign
+
+    @app.get("/api/campaign")
+    def get_current_campaign(
+        context: ContextDependency,
+        _: AuthDependency,
+    ) -> dict[str, Any]:
+        return context.campaign_status()
+
     @app.post("/api/auth/request-code")
     def request_code(
         context: ContextDependency,
@@ -474,6 +639,15 @@ def create_app(
             attachment_digests=attachment_digests,
         )
         verify_chat_targets(context.client(), targets)
+        stats = context.service().get_stats()
+        planned_deliveries = len(plan_result.aliases) * payload.repeat_count
+        capacity_warning = None
+        hourly_remaining = int(str(stats["hourly_remaining"]))
+        daily_remaining = int(str(stats["daily_remaining"]))
+        if planned_deliveries > hourly_remaining:
+            capacity_warning = "Выбранный запуск превышает оставшийся почасовой лимит."
+        elif planned_deliveries > daily_remaining:
+            capacity_warning = "Выбранный запуск превышает оставшийся дневной лимит."
         return {
             "aliases": plan_result.aliases,
             "chat_count": len(plan_result.aliases),
@@ -482,6 +656,7 @@ def create_app(
             "repeat_count": payload.repeat_count,
             "interval_seconds": payload.interval_seconds,
             "attachment_count": len(attachment_digests),
+            "capacity_warning": capacity_warning,
         }
 
     @app.post("/api/send")
@@ -496,6 +671,7 @@ def create_app(
             payload.attachments
         )
         with RunLock(context.settings.lock_file):
+            campaign_id = payload.campaign_id or f"tg-{uuid.uuid4().hex[:16]}"
             results = context.service().send(
                 targets,
                 payload.message,
@@ -505,10 +681,14 @@ def create_app(
                 repeat_count=payload.repeat_count,
                 interval_seconds=payload.interval_seconds,
                 delivery_scope=f"{payload.confirm_token}:{payload.round_index}",
+                campaign_id=campaign_id,
+                variant_id=payload.variant_id,
+                round_index=payload.round_index,
                 attachments=attachments,
                 attachment_digests=attachment_digests,
             )
         return {
+            "campaign_id": campaign_id,
             "results": [asdict(result) for result in results],
             "round_index": payload.round_index,
             "complete": all(
@@ -516,11 +696,43 @@ def create_app(
             ),
         }
 
+    @app.post("/api/campaign")
+    def start_campaign(
+        payload: SendRequest,
+        context: ContextDependency,
+        _: OriginDependency,
+        __: AuthDependency,
+    ) -> dict[str, Any]:
+        targets = context.selected(payload.aliases)
+        attachments, attachment_digests = _validated_attachments(
+            payload.attachments
+        )
+        del attachments
+        return context.start_campaign(
+            targets=targets,
+            message=payload.message,
+            confirm_token=payload.confirm_token,
+            retry_unknown=payload.retry_unknown,
+            repeat_count=payload.repeat_count,
+            interval_seconds=payload.interval_seconds,
+            attachments=payload.attachments,
+            attachment_digests=attachment_digests,
+        )
+
+    @app.post("/api/campaign/cancel")
+    def cancel_campaign(
+        context: ContextDependency,
+        _: OriginDependency,
+        __: AuthDependency,
+    ) -> dict[str, Any]:
+        return context.cancel_campaign()
+
     def domain_error(_: Request, exc: Exception) -> Any:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     for exception_type in (
         LockError,
+        CampaignError,
         StateError,
         TelegramApiError,
         TelegramBroadcastError,

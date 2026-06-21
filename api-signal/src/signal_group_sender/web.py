@@ -25,6 +25,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from signal_group_sender.campaign import CampaignError, PersistentCampaignManager
 from signal_group_sender.client import SignalApiClient, SignalApiError
 from signal_group_sender.config import ConfigError, Settings
 from signal_group_sender.groups import (
@@ -109,11 +110,24 @@ class WebContext:
         self.web_password = web_password
         self.session_secret = load_or_create_hmac_key(settings.state_secret_file)
         self._session_manager = SignedSessionManager(self.session_secret)
+        self._campaign_manager = PersistentCampaignManager(
+            self._campaign_file,
+            self._send_campaign_round,
+        )
+
+    @property
+    def _campaign_file(self) -> Path:
+        return self._base_settings.state_file.with_name(
+            f"{self._base_settings.state_file.stem}-campaign.json"
+        )
 
     @property
     def settings(self) -> Settings:
         with self._account_lock:
             return replace(self._base_settings, number=self._active_number)
+
+    def settings_for_number(self, number: str) -> Settings:
+        return replace(self._base_settings, number=number)
 
     def selected(self, aliases: list[str]) -> list[GroupTarget]:
         return select_targets(self.live_targets(), aliases, all_allowed=False)
@@ -150,15 +164,109 @@ class WebContext:
     def client(self) -> SignalApiClient:
         return SignalApiClient(self.settings)
 
+    def client_for_settings(self, settings: Settings) -> SignalApiClient:
+        return SignalApiClient(settings)
+
     def service(self) -> BroadcastService:
+        return self.service_for_settings(self.settings)
+
+    def service_for_settings(self, settings: Settings) -> BroadcastService:
         key = self.session_secret
         ledger = DeliveryLedger(
-            self.settings.state_file,
+            settings.state_file,
             integrity_key=key,
-            duplicate_window_seconds=self.settings.duplicate_window_seconds,
+            duplicate_window_seconds=settings.duplicate_window_seconds,
         )
-        ledger.initialize(allow_create=not self.settings.state_file.exists())
-        return BroadcastService(self.settings, self.client(), ledger, key)
+        ledger.initialize(allow_create=not settings.state_file.exists())
+        return BroadcastService(settings, self.client_for_settings(settings), ledger, key)
+
+    def start_campaign(
+        self,
+        *,
+        targets: list[GroupTarget],
+        message: str,
+        confirm_token: str,
+        retry_unknown: bool,
+        repeat_count: int,
+        interval_seconds: int,
+        attachments: list[str],
+        attachment_digests: tuple[str, ...],
+    ) -> dict[str, Any]:
+        settings = self.settings
+        plan = build_broadcast_plan(
+            settings,
+            targets,
+            message,
+            repeat_count=repeat_count,
+            interval_seconds=interval_seconds,
+            attachment_digests=attachment_digests,
+        )
+        verify_group_targets(self.client_for_settings(settings), targets)
+        if confirm_token != plan.confirm_token:
+            raise BroadcastError(f"Live send requires --confirm-token {plan.confirm_token}")
+        return self._campaign_manager.start(
+            {
+                "transport": "signal",
+                "number": settings.number,
+                "targets": [
+                    {
+                        "alias": target.alias,
+                        "group_id": target.group_id,
+                        "description": target.description,
+                    }
+                    for target in targets
+                ],
+                "message": message,
+                "confirm_token": confirm_token,
+                "retry_unknown": retry_unknown,
+                "repeat_count": repeat_count,
+                "interval_seconds": interval_seconds,
+                "attachments": attachments,
+                "attachment_digests": list(attachment_digests),
+            }
+        )
+
+    def campaign_status(self) -> dict[str, Any]:
+        return self._campaign_manager.status()
+
+    def cancel_campaign(self) -> dict[str, Any]:
+        return self._campaign_manager.cancel()
+
+    def resume_campaign(self) -> None:
+        self._campaign_manager.resume_active()
+
+    def shutdown_campaign(self) -> None:
+        self._campaign_manager.shutdown()
+
+    def _send_campaign_round(
+        self,
+        snapshot: dict[str, Any],
+        round_index: int,
+    ) -> list[dict[str, Any]]:
+        number = str(snapshot["number"])
+        settings = self.settings_for_number(number)
+        targets = [
+            GroupTarget(
+                str(item["alias"]),
+                str(item["group_id"]),
+                str(item.get("description", "")),
+            )
+            for item in snapshot["targets"]
+        ]
+        with RunLock(settings.lock_file):
+            results = self.service_for_settings(settings).send(
+                targets,
+                str(snapshot["message"]),
+                confirm_count=len(targets),
+                confirm_token=str(snapshot["confirm_token"]),
+                retry_unknown=bool(snapshot.get("retry_unknown")),
+                repeat_count=int(snapshot["repeat_count"]),
+                interval_seconds=int(snapshot["interval_seconds"]),
+                delivery_scope=f"{snapshot['confirm_token']}:{round_index}",
+                base64_attachments=list(snapshot.get("attachments", [])),
+                attachment_digests=tuple(snapshot.get("attachment_digests", [])),
+            )
+        return [asdict(result) for result in results]
 
     def issue_session(self) -> str:
         return self._session_manager.issue()
@@ -307,7 +415,9 @@ def create_app(
             settings or Settings.from_env(env_file),
             password,
         )
+        app.state.context.resume_campaign()
         yield
+        app.state.context.shutdown_campaign()
 
     app = FastAPI(
         title="Signal Панель",
@@ -422,6 +532,13 @@ def create_app(
     ) -> dict[str, Any]:
         return context.service().get_stats()
 
+    @app.get("/api/campaign")
+    def get_campaign(
+        context: ContextDependency,
+        _: AuthDependency,
+    ) -> dict[str, Any]:
+        return context.campaign_status()
+
     @app.get("/api/telegram-panel/status")
     def telegram_panel_status(_: AuthDependency) -> dict[str, Any]:
         return _telegram_panel_status()
@@ -516,12 +633,43 @@ def create_app(
             ),
         }
 
+    @app.post("/api/campaign")
+    def start_campaign(
+        payload: SendRequest,
+        context: ContextDependency,
+        _: OriginDependency,
+        __: AuthDependency,
+    ) -> dict[str, Any]:
+        targets = context.selected(payload.aliases)
+        attachments, attachment_digests = _validated_attachments(
+            payload.attachments
+        )
+        return context.start_campaign(
+            targets=targets,
+            message=payload.message,
+            confirm_token=payload.confirm_token,
+            retry_unknown=payload.retry_unknown,
+            repeat_count=payload.repeat_count,
+            interval_seconds=payload.interval_seconds,
+            attachments=attachments,
+            attachment_digests=attachment_digests,
+        )
+
+    @app.post("/api/campaign/cancel")
+    def cancel_campaign(
+        context: ContextDependency,
+        _: OriginDependency,
+        __: AuthDependency,
+    ) -> dict[str, Any]:
+        return context.cancel_campaign()
+
     def domain_error(_: Request, exc: Exception) -> Any:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     for exception_type in (
         AllowlistError,
         BroadcastError,
+        CampaignError,
         ConfigError,
         LockError,
         SignalApiError,

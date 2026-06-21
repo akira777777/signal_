@@ -8,11 +8,16 @@ import threading
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, TypeVar
 
 from signal_group_sender.locking import AlreadyRunningError, RunLock
+from signal_group_sender.telegram_campaigns import (
+    ENGAGEMENT_WINDOW_SECONDS,
+    TelegramCampaignDelivery,
+)
 from signal_group_sender.telegram_config import TelegramSettings
 
 T = TypeVar("T")
@@ -442,7 +447,73 @@ class TelegramApiClient:
                 "No response from Telegram; delivery is unknown and was not retried"
             ) from exc
 
-        return {"result": "ok", "message": bool(result)}
+        message_ids = self._extract_message_ids(result)
+        return {"result": "ok", "message": bool(result), "message_ids": message_ids}
+
+    def collect_engagement(
+        self,
+        records: list[TelegramCampaignDelivery],
+        *,
+        window_seconds: int = ENGAGEMENT_WINDOW_SECONDS,
+    ) -> dict[tuple[str, int, str], tuple[int, int]]:
+        return self._run(
+            lambda client: self._collect_engagement(
+                client,
+                records=records,
+                window_seconds=window_seconds,
+            )
+        )
+
+    async def _collect_engagement(
+        self,
+        client: Any,
+        *,
+        records: list[TelegramCampaignDelivery],
+        window_seconds: int,
+    ) -> dict[tuple[str, int, str], tuple[int, int]]:
+        runtime = _telethon_runtime()
+        try:
+            await self._ensure_authorized(client)
+            updates: dict[tuple[str, int, str], tuple[int, int]] = {}
+            by_peer: dict[str, list[TelegramCampaignDelivery]] = {}
+            for record in records:
+                if record.status != "sent" or not record.message_ids:
+                    continue
+                by_peer.setdefault(record.peer_id, []).append(record)
+
+            for peer_id, peer_records in by_peer.items():
+                entity = await self._resolve_entity(client, peer_id, runtime)
+                messages = []
+                async for message in client.iter_messages(entity, limit=100):
+                    messages.append(message)
+                for record in peer_records:
+                    reply_count = 0
+                    activity_count = 0
+                    message_ids = set(record.message_ids)
+                    window_end = record.created_at + window_seconds
+                    for message in messages:
+                        if getattr(message, "out", False):
+                            continue
+                        message_ts = self._message_timestamp(message)
+                        if message_ts is not None and not (
+                            record.created_at <= message_ts <= window_end
+                        ):
+                            continue
+                        if self._reply_to_message_id(message) in message_ids:
+                            reply_count += 1
+                        if self._is_recent_post_candidate(message):
+                            activity_count += 1
+                    updates[(record.alias, record.round_index, record.variant_id)] = (
+                        reply_count,
+                        activity_count,
+                    )
+            return updates
+        except TelegramAuthRequiredError:
+            raise
+        except runtime.rpc_error as exc:
+            raise TelegramApiError(f"Telegram rejected the engagement scan: {exc}") from exc
+        except (OSError, TimeoutError) as exc:
+            raise TelegramApiError("Telegram engagement scan did not complete") from exc
 
     async def _resolve_entity(
         self,
@@ -455,3 +526,31 @@ class TelegramApiClient:
             if entity is not None and str(runtime.get_peer_id(entity)) == peer_id:
                 return entity
         raise TelegramApiError(f"Telegram chat {peer_id} is no longer visible")
+
+    @staticmethod
+    def _extract_message_ids(result: Any) -> list[int]:
+        items = result if isinstance(result, list) else [result]
+        message_ids: list[int] = []
+        for item in items:
+            message_id = getattr(item, "id", None)
+            if isinstance(message_id, int):
+                message_ids.append(message_id)
+        return message_ids
+
+    @staticmethod
+    def _reply_to_message_id(message: Any) -> int | None:
+        direct = getattr(message, "reply_to_msg_id", None)
+        if isinstance(direct, int):
+            return direct
+        reply_to = getattr(message, "reply_to", None)
+        nested = getattr(reply_to, "reply_to_msg_id", None)
+        return nested if isinstance(nested, int) else None
+
+    @staticmethod
+    def _message_timestamp(message: Any) -> float | None:
+        value = getattr(message, "date", None)
+        if isinstance(value, datetime):
+            return value.timestamp()
+        if isinstance(value, (int, float)) and math.isfinite(value):
+            return float(value)
+        return None

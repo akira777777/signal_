@@ -4,6 +4,7 @@ const state = {
   selected: new Set(),
   plan: null,
   campaign: null,
+  campaignPoll: null,
   accountPoll: null,
   attachments: [],
   history: [],
@@ -393,23 +394,78 @@ function formatCountdown(seconds) {
     .join(":");
 }
 
-function waitInterval(seconds, nextRound) {
-  return new Promise((resolve) => {
-    const deadline = Date.now() + seconds * 1000;
+function isCampaignActive(campaign) {
+  return ["pending", "running", "waiting", "cancel_requested"].includes(campaign?.status);
+}
+
+function renderCampaignStatus(campaign) {
+  state.campaign = isCampaignActive(campaign) ? campaign : null;
+  if (campaign.results?.length) {
+    renderResults(campaign.results);
+  }
+  updateProgress(campaign.current_round || 0, campaign.repeat_count || 1);
+
+  if (campaign.status === "waiting" && campaign.next_run_at) {
+    const nextRound = (campaign.current_round || 0) + 1;
+    const remaining = Math.max(0, Math.ceil((campaign.next_run_at * 1000 - Date.now()) / 1000));
     elements.countdownLabel.textContent = `Цикл ${nextRound} начнётся через`;
+    elements.countdownValue.textContent = formatCountdown(remaining);
     elements.countdownBox.classList.remove("hidden");
-    const tick = () => {
-      const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-      elements.countdownValue.textContent = formatCountdown(remaining);
-      if (remaining === 0 || state.campaign?.cancelled) {
-        clearInterval(timer);
-        elements.countdownBox.classList.add("hidden");
-        resolve();
+  } else if (campaign.status === "running" || campaign.status === "pending") {
+    elements.countdownLabel.textContent = `Цикл ${(campaign.current_round || 0) + 1} выполняется`;
+    elements.countdownValue.textContent = "идёт";
+    elements.countdownBox.classList.remove("hidden");
+  } else if (campaign.status === "cancel_requested") {
+    elements.countdownLabel.textContent = "Останавливаем кампанию";
+    elements.countdownValue.textContent = "…";
+    elements.countdownBox.classList.remove("hidden");
+  } else {
+    elements.countdownBox.classList.add("hidden");
+  }
+}
+
+function stopCampaignPolling() {
+  if (state.campaignPoll) {
+    clearInterval(state.campaignPoll);
+    state.campaignPoll = null;
+  }
+}
+
+async function refreshCampaignStatus({notifyTerminal = false} = {}) {
+  const campaign = await api("/api/campaign");
+  const wasActive = Boolean(state.campaign);
+  renderCampaignStatus(campaign);
+  setCampaignControls(isCampaignActive(campaign));
+  if (!isCampaignActive(campaign)) {
+    stopCampaignPolling();
+    if (wasActive || notifyTerminal) {
+      if (campaign.status === "completed") {
+        playNotificationSound();
+        showToast("Кампания завершена", "success");
+      } else if (campaign.status === "cancelled") {
+        showToast("Кампания остановлена", "info");
+      } else if (campaign.status === "failed") {
+        showError(campaign.error || "Кампания завершилась ошибкой");
+        showToast(campaign.error || "Кампания завершилась ошибкой", "error");
       }
-    };
-    const timer = setInterval(tick, 250);
-    tick();
-  });
+      invalidatePlan();
+      updateSelection();
+      loadStats().catch(() => {});
+      if (!elements.historyView.classList.contains("hidden")) {
+        loadHistory().catch(() => {});
+      }
+    }
+  }
+  return campaign;
+}
+
+function startCampaignPolling() {
+  stopCampaignPolling();
+  state.campaignPoll = setInterval(() => {
+    refreshCampaignStatus({notifyTerminal: true}).catch((error) => {
+      showError(error.message);
+    });
+  }, 2000);
 }
 
 function setCampaignControls(disabled) {
@@ -430,48 +486,27 @@ async function runCampaign() {
   if (!state.plan) return;
   elements.dialog.close();
   showError();
-  const campaign = {cancelled: false, results: []};
-  state.campaign = campaign;
   setCampaignControls(true);
   try {
-    for (let round = 1; round <= state.plan.repeat_count; round += 1) {
-      if (campaign.cancelled) break;
-      const payload = await api("/api/send", {
-        method: "POST",
-        body: JSON.stringify({
-          aliases: [...state.selected],
-          message: elements.message.value,
-          attachments: state.attachments.map((attachment) => attachment.dataUrl),
-          confirm_token: state.plan.confirm_token,
-          retry_unknown: false,
-          repeat_count: state.plan.repeat_count,
-          interval_seconds: state.plan.interval_seconds,
-          round_index: round,
-        }),
-      });
-      campaign.results.push(
-        ...payload.results.map((result) => ({...result, round_index: round}))
-      );
-      renderResults(campaign.results);
-      updateProgress(round, state.plan.repeat_count);
-      if (!payload.complete) break;
-      if (round < state.plan.repeat_count) {
-        await waitInterval(state.plan.interval_seconds, round + 1);
-      }
-    }
-    playNotificationSound();
-    showToast("Кампания завершена", "success");
+    const campaign = await api("/api/campaign", {
+      method: "POST",
+      body: JSON.stringify({
+        aliases: [...state.selected],
+        message: elements.message.value,
+        attachments: state.attachments.map((attachment) => attachment.dataUrl),
+        confirm_token: state.plan.confirm_token,
+        retry_unknown: false,
+        repeat_count: state.plan.repeat_count,
+        interval_seconds: state.plan.interval_seconds,
+      }),
+    });
+    renderCampaignStatus(campaign);
+    startCampaignPolling();
+    showToast("Кампания запущена на сервере", "success");
   } catch (error) {
     showError(error.message);
     showToast(error.message, "error");
-  } finally {
-    state.campaign = null;
-    elements.countdownBox.classList.add("hidden");
-    elements.progressContainer.classList.add("hidden");
     setCampaignControls(false);
-    invalidatePlan();
-    updateSelection();
-    loadStats().catch(() => {});
   }
 }
 
@@ -803,6 +838,9 @@ function restoreDraft() {
 elements.refresh.addEventListener("click", () => {
   loadStatus().catch(() => {});
   loadStats().catch(() => {});
+  refreshCampaignStatus().then((campaign) => {
+    if (isCampaignActive(campaign)) startCampaignPolling();
+  }).catch(() => {});
   if (!elements.historyView.classList.contains("hidden")) {
     loadHistory().catch(() => {});
   }
@@ -856,7 +894,12 @@ elements.confirmSendButton.addEventListener("click", (event) => {
   runCampaign();
 });
 elements.cancelTimerButton.addEventListener("click", () => {
-  if (state.campaign) state.campaign.cancelled = true;
+  api("/api/campaign/cancel", {method: "POST", body: "{}"})
+    .then((campaign) => {
+      renderCampaignStatus(campaign);
+      showToast("Остановка кампании запрошена", "info");
+    })
+    .catch((error) => showError(error.message));
 });
 elements.accountSelect.addEventListener("change", () => {
   selectAccount(elements.accountSelect.value).catch((error) => showError(error.message));
@@ -922,4 +965,7 @@ restoreDraft();
 loadStatus().catch(() => {});
 loadStats().catch(() => {});
 loadTelegramPanelStatus().catch(() => {});
+refreshCampaignStatus().then((campaign) => {
+  if (isCampaignActive(campaign)) startCampaignPolling();
+}).catch(() => {});
 startHistoryAutoRefresh();

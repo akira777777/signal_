@@ -484,6 +484,14 @@ code { color: var(--blue); font-family: ui-monospace, SFMono-Regular, Menlo, Mon
 }
 .repeat-row select:focus, .repeat-row input:focus, .login-card input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); }
 .repeat-row small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.ab-panel {
+  display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-card);
+  color: var(--muted); font-size: 13px;
+}
+.ab-panel .select-all { margin: 0; color: var(--text); }
+.section-heading.compact { margin-top: 16px; margin-bottom: 10px; }
+#message-b { min-height: 150px; }
 
 /* ─── Countdown ──────────────────────────────────────────────── */
 .countdown-box {
@@ -514,6 +522,29 @@ code { color: var(--blue); font-family: ui-monospace, SFMono-Regular, Menlo, Mon
 .history-table td { padding: 14px 18px; border-bottom: 1px solid var(--border); color: var(--text); font-weight: 500; }
 .history-table tr:last-child td { border-bottom: 0; }
 .history-table tr:hover td { background: var(--blue-soft); }
+.campaigns-list { display: grid; gap: 14px; }
+.campaign-card {
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+  padding: 16px;
+}
+.campaign-card header {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+  margin-bottom: 14px;
+}
+.campaign-card h3 { margin: 0 0 4px; font-size: 16px; }
+.campaign-card small { color: var(--muted); }
+.campaign-metrics {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px;
+  margin-bottom: 14px;
+}
+.campaign-metric { padding: 10px; border-radius: 8px; background: var(--surface-card); }
+.campaign-metric span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+.campaign-metric strong { font-size: 18px; }
+.variant-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.variant-pill {
+  border: 1px solid var(--border); border-radius: 999px; padding: 6px 10px;
+  font-size: 12px; color: var(--muted);
+}
 
 /* ─── Pulse Badge ────────────────────────────────────────────── */
 .pulse-badge { display: inline-flex; align-items: center; gap: 6px; }
