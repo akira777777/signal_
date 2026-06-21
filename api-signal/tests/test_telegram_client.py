@@ -55,12 +55,15 @@ class FakeDialog:
 
 @dataclass
 class FakeMessage:
+    id: int = 0
     out: bool = False
     message: str = ""
     media: object | None = None
     action: object | None = None
     entities: tuple[object, ...] = ()
     reply_markup: object | None = None
+    date: float | None = None
+    reply_to_msg_id: int | None = None
 
 
 class FakeClient:
@@ -87,11 +90,25 @@ class FakeClient:
 
     async def iter_messages(
         self,
-        dialog: FakeDialog,
+        dialog: object,
         limit: int,
     ) -> AsyncIterator[FakeMessage]:
-        for message in self._messages_by_id.get(dialog.dialog_id, [])[:limit]:
+        dialog_id = getattr(dialog, "dialog_id", None)
+        for message in self._messages_by_id.get(str(dialog_id), [])[:limit]:
             yield message
+
+    async def send_message(self, entity: object, message: str) -> FakeMessage:
+        return FakeMessage(id=77, out=True, message=message)
+
+    async def send_file(
+        self,
+        entity: object,
+        files: object,
+        *,
+        caption: str | None,
+        force_document: bool,
+    ) -> list[FakeMessage]:
+        return [FakeMessage(id=78, out=True, message=caption or "")]
 
 
 def _patch_runtime(monkeypatch) -> None:
@@ -223,5 +240,51 @@ def test_list_dialogs_excludes_supergroup_with_temporary_restriction(
 
     assert client.list_dialogs() == []
 
+
+def test_send_chat_returns_message_ids(
+    telegram_settings: TelegramSettings,
+    monkeypatch,
+) -> None:
+    _patch_runtime(monkeypatch)
+    dialog = FakeDialog(FakeChat(), "1001", "Target")
+    dialog.entity.dialog_id = dialog.dialog_id
+    client = _client(telegram_settings, FakeClient([dialog], {}))
+
+    assert client.send_chat("1001", "hello")["message_ids"] == [77]
+
+
+def test_collect_engagement_counts_replies_and_activity(
+    telegram_settings: TelegramSettings,
+    monkeypatch,
+) -> None:
+    from signal_group_sender.telegram_campaigns import TelegramCampaignDelivery
+
+    _patch_runtime(monkeypatch)
+    dialog = FakeDialog(FakeChat(), "1001", "Target")
+    dialog.entity.dialog_id = dialog.dialog_id
+    messages = {
+        "1001": [
+            FakeMessage(id=90, out=False, message="reply", date=1010.0, reply_to_msg_id=77),
+            FakeMessage(id=91, out=False, message="later", date=1020.0),
+            FakeMessage(id=92, out=True, message="own", date=1030.0),
+        ],
+    }
+    client = _client(telegram_settings, FakeClient([dialog], messages))
+    records = [
+        TelegramCampaignDelivery(
+            campaign_id="tg-1",
+            created_at=1000.0,
+            alias="chat-a",
+            target_token="token-a",
+            peer_id="1001",
+            variant_id="A",
+            round_index=1,
+            status="sent",
+            message_ids=(77,),
+            attachment_count=0,
+        )
+    ]
+
+    assert client.collect_engagement(records) == {("chat-a", 1, "A"): (1, 2)}
 
 
