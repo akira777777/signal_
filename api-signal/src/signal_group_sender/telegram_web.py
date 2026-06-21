@@ -30,6 +30,7 @@ from signal_group_sender.telegram_client import (
     TelegramApiClient,
     TelegramApiError,
     TelegramAttachment,
+    TelegramAuthRequiredError,
     TelegramPasswordRequiredError,
 )
 from signal_group_sender.telegram_config import TelegramConfigError, TelegramSettings
@@ -125,6 +126,9 @@ class TelegramWebContext:
         self._dialog_cache: dict[str, ChatTarget] | None = None
         self._dialog_cache_ts: float = 0.0
         self._dialog_cache_lock = threading.Lock()
+        self._auth_cache: bool | None = None
+        self._auth_cache_ts: float = 0.0
+        self._auth_cache_lock = threading.Lock()
 
     def client(self) -> TelegramApiClient:
         return TelegramApiClient(self.settings)
@@ -149,20 +153,24 @@ class TelegramWebContext:
                 return self._dialog_cache
 
         targets: dict[str, ChatTarget] = {}
-        for dialog in self.client().list_dialogs():
-            peer_id = dialog.get("id")
-            name = dialog.get("name")
-            kind = dialog.get("kind")
-            available = dialog.get("available")
-            if (
-                not isinstance(peer_id, str)
-                or not isinstance(name, str)
-                or not isinstance(kind, str)
-                or available is not True
-            ):
-                continue
-            alias = "t-" + hashlib.sha256(peer_id.encode()).hexdigest()[:16]
-            targets[alias] = ChatTarget(alias, peer_id, name, kind)
+        try:
+            for dialog in self.client().list_dialogs():
+                peer_id = dialog.get("id")
+                name = dialog.get("name")
+                kind = dialog.get("kind")
+                available = dialog.get("available")
+                if (
+                    not isinstance(peer_id, str)
+                    or not isinstance(name, str)
+                    or not isinstance(kind, str)
+                    or available is not True
+                ):
+                    continue
+                alias = "t-" + hashlib.sha256(peer_id.encode()).hexdigest()[:16]
+                targets[alias] = ChatTarget(alias, peer_id, name, kind)
+        except TelegramAuthRequiredError:
+            self.invalidate_auth_cache()
+            raise
 
         with self._dialog_cache_lock:
             self._dialog_cache = targets
@@ -174,17 +182,41 @@ class TelegramWebContext:
         with self._dialog_cache_lock:
             self._dialog_cache_ts = 0.0
 
+    def invalidate_auth_cache(self) -> None:
+        """Force the next is_authorized() call to re-fetch from Telegram."""
+        with self._auth_cache_lock:
+            self._auth_cache = None
+            self._auth_cache_ts = 0.0
+
     def selected(self, aliases: list[str]) -> list[ChatTarget]:
         return select_targets(self.live_targets(), aliases, all_live=False)
 
     def is_authorized(self) -> bool:
-        return self.client().is_authorized()
+        now = time.monotonic()
+        with self._auth_cache_lock:
+            if (
+                self._auth_cache is True
+                and now - self._auth_cache_ts < self.DIALOG_CACHE_TTL_SECONDS
+            ):
+                return True
+        try:
+            auth = self.client().is_authorized()
+        except TelegramAuthRequiredError:
+            auth = False
+        with self._auth_cache_lock:
+            self._auth_cache = auth
+            self._auth_cache_ts = now
+        return auth
 
     def request_code(self) -> bool:
         phone_code_hash = self.client().request_code()
+        already_authorized = phone_code_hash is None
+        with self._auth_cache_lock:
+            self._auth_cache = already_authorized
+            self._auth_cache_ts = time.monotonic()
         with self._auth_lock:
             self._pending_phone_code_hash = phone_code_hash
-        return phone_code_hash is None
+        return already_authorized
 
     def complete_auth(self, code: str, password: str | None) -> bool:
         with self._auth_lock:
@@ -194,6 +226,9 @@ class TelegramWebContext:
         self.client().authorize(code, phone_code_hash, password=password)
         with self._auth_lock:
             self._pending_phone_code_hash = None
+        with self._auth_cache_lock:
+            self._auth_cache = True
+            self._auth_cache_ts = time.monotonic()
         return True
 
     def issue_session(self) -> str:

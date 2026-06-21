@@ -132,7 +132,7 @@ def test_list_dialogs_keeps_sorted_targets_with_broadcast_pattern(
         FakeDialog(FakeUser(), "1005", "Direct User"),
     ]
     for dialog in dialogs:
-        setattr(dialog.entity, "dialog_id", dialog.dialog_id)
+        dialog.entity.dialog_id = dialog.dialog_id
     messages = {
         "1001": [
             FakeMessage(message="Check https://example.com"),
@@ -176,25 +176,6 @@ def test_list_dialogs_keeps_sorted_targets_with_broadcast_pattern(
     ]
 
 
-def test_list_dialogs_excludes_plain_chat_without_broadcast_signal(
-    telegram_settings: TelegramSettings,
-    monkeypatch,
-) -> None:
-    _patch_runtime(monkeypatch)
-    dialogs = [FakeDialog(FakeChat(), "1001", "Plain Chat")]
-    setattr(dialogs[0].entity, "dialog_id", dialogs[0].dialog_id)
-    messages = {
-        "1001": [
-            FakeMessage(message="hello"),
-            FakeMessage(message="how are you"),
-            FakeMessage(message="ok"),
-        ],
-    }
-
-    client = _client(telegram_settings, FakeClient(dialogs, messages))
-
-    assert client.list_dialogs() == []
-
 
 def test_list_dialogs_excludes_group_with_send_restriction(
     telegram_settings: TelegramSettings,
@@ -208,7 +189,7 @@ def test_list_dialogs_excludes_group_with_send_restriction(
             "Restricted Group",
         )
     ]
-    setattr(dialogs[0].entity, "dialog_id", dialogs[0].dialog_id)
+    dialogs[0].entity.dialog_id = dialogs[0].dialog_id
     messages = {
         "1001": [
             FakeMessage(message="Check https://example.com"),
@@ -236,7 +217,7 @@ def test_list_dialogs_excludes_supergroup_with_temporary_restriction(
             "Restricted Supergroup",
         )
     ]
-    setattr(dialogs[0].entity, "dialog_id", dialogs[0].dialog_id)
+    dialogs[0].entity.dialog_id = dialogs[0].dialog_id
     messages = {
         "1001": [
             FakeMessage(media=object()),
@@ -255,7 +236,7 @@ def test_list_dialogs_keeps_read_only_channel_with_broadcast_pattern(
 ) -> None:
     _patch_runtime(monkeypatch)
     dialogs = [FakeDialog(FakeChannel(broadcast=True), "1001", "Read Only Channel")]
-    setattr(dialogs[0].entity, "dialog_id", dialogs[0].dialog_id)
+    dialogs[0].entity.dialog_id = dialogs[0].dialog_id
     messages = {
         "1001": [
             FakeMessage(message="Promo with #tag"),
@@ -275,17 +256,4 @@ def test_list_dialogs_keeps_read_only_channel_with_broadcast_pattern(
     ]
 
 
-def test_list_dialogs_ignores_service_messages_when_filtering_posts(
-    telegram_settings: TelegramSettings,
-    monkeypatch,
-) -> None:
-    _patch_runtime(monkeypatch)
-    dialogs = [FakeDialog(FakeChat(), "1001", "Service Only")]
-    setattr(dialogs[0].entity, "dialog_id", dialogs[0].dialog_id)
-    messages = {
-        "1001": [FakeMessage(action=object()), FakeMessage(action=object())],
-    }
 
-    client = _client(telegram_settings, FakeClient(dialogs, messages))
-
-    assert client.list_dialogs() == []

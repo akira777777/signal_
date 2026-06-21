@@ -369,9 +369,7 @@ class TelegramApiClient:
             return False
         if cls._has_send_restriction(getattr(entity, "permissions", None)):
             return False
-        if getattr(entity, "restricted", False):
-            return False
-        return True
+        return not getattr(entity, "restricted", False)
 
     @staticmethod
     def _has_send_restriction(rights: Any) -> bool:
@@ -383,9 +381,11 @@ class TelegramApiClient:
         if send_messages is False:
             return False
         until_date = getattr(rights, "until_date", None)
-        if isinstance(until_date, (int, float)) and math.isfinite(until_date) and until_date > 0:
-            return True
-        return False
+        return bool(
+            isinstance(until_date, (int, float))
+            and math.isfinite(until_date)
+            and until_date > 0
+        )
 
     @classmethod
     def _dialog_sort_key(cls, dialog: dict[str, Any]) -> tuple[int, str]:
