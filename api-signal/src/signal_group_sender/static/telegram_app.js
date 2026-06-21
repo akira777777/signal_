@@ -85,6 +85,15 @@ function escapeHtml(value) {
   return div.innerHTML;
 }
 
+/** Returns a debounced version of fn that fires after `wait` ms of silence. */
+function debounce(fn, wait = 300) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), wait);
+  };
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
@@ -225,30 +234,60 @@ function renderChats() {
   const visible = state.chats.filter((chat) =>
     chat.name.toLocaleLowerCase("ru").includes(query)
   );
-  elements.list.innerHTML = visible.map((chat) => `
-    <label class="group-row">
-      <input type="checkbox" data-alias="${escapeHtml(chat.alias)}"
-        ${state.selected.has(chat.alias) ? "checked" : ""}
-        ${chat.available ? "" : "disabled"}>
-      <span class="group-name" title="${escapeHtml(chat.name)}">
-        ${escapeHtml(chat.name)} <small style="opacity:.65;">${escapeHtml(chat.kind)}</small>
-      </span>
-      <span class="availability ${chat.available ? "" : "offline"}"
-        title="${chat.available ? "Доступен" : "Недоступен"}"></span>
-    </label>
-  `).join("") || '<div class="empty-state">Чаты не найдены.</div>';
 
-  elements.list.querySelectorAll("input[data-alias]").forEach((input) => {
-    input.addEventListener("change", () => {
-      if (input.checked) state.selected.add(input.dataset.alias);
-      else state.selected.delete(input.dataset.alias);
-      updateSelection();
-    });
-  });
+  // Use DocumentFragment to batch DOM updates — avoids repeated reflows
+  const fragment = document.createDocumentFragment();
+
+  if (visible.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "Чаты не найдены.";
+    fragment.appendChild(empty);
+  } else {
+    for (const chat of visible) {
+      const label = document.createElement("label");
+      label.className = "group-row";
+
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.dataset.alias = chat.alias;
+      input.checked = state.selected.has(chat.alias);
+      input.disabled = !chat.available;
+      input.addEventListener("change", () => {
+        if (input.checked) state.selected.add(chat.alias);
+        else state.selected.delete(chat.alias);
+        updateSelection();
+      });
+
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "group-name";
+      nameSpan.title = chat.name;
+      nameSpan.textContent = chat.name;
+      if (chat.kind) {
+        const small = document.createElement("small");
+        small.style.opacity = "0.65";
+        small.textContent = ` ${chat.kind}`;
+        nameSpan.appendChild(small);
+      }
+
+      const dot = document.createElement("span");
+      dot.className = `availability${chat.available ? "" : " offline"}`;
+      dot.title = chat.available ? "Доступен" : "Недоступен";
+
+      label.appendChild(input);
+      label.appendChild(nameSpan);
+      label.appendChild(dot);
+      fragment.appendChild(label);
+    }
+  }
+
+  elements.list.replaceChildren(fragment);
 }
 
 async function loadStatus() {
+  // Show loading spinner on refresh button
   elements.refresh.disabled = true;
+  elements.refresh.classList.add("refreshing");
   showError();
   try {
     const payload = await api("/api/status");
@@ -293,6 +332,7 @@ async function loadStatus() {
     showError(error.message);
   } finally {
     elements.refresh.disabled = false;
+    elements.refresh.classList.remove("refreshing");
   }
 }
 
@@ -514,13 +554,21 @@ function playNotificationSound() {
 
 async function loadStats() {
   try {
+    // Briefly dim values while updating for a "live" feel
+    [elements.statHourly, elements.statDaily, elements.statSuccess, elements.statRemaining]
+      .forEach((el) => el?.classList.add("updating"));
     const stats = await api("/api/stats");
     elements.statHourly.textContent = stats.hourly_count;
     elements.statDaily.textContent = stats.daily_count;
     elements.statSuccess.textContent = `${stats.success_rate}%`;
     elements.statRemaining.textContent = `${stats.hourly_remaining} / ${stats.daily_remaining}`;
+    [elements.statHourly, elements.statDaily, elements.statSuccess, elements.statRemaining]
+      .forEach((el) => el?.classList.remove("updating"));
   } catch {}
 }
+
+// Auto-refresh stats every 60 seconds
+setInterval(() => loadStats().catch(() => {}), 60_000);
 
 function switchView(viewName) {
   if (viewName === "broadcast") {
@@ -724,11 +772,13 @@ function refreshDashboard() {
 
 elements.refresh.addEventListener("click", () => {
   loadStatus().catch(() => {});
+  loadStats().catch(() => {});
   if (!elements.historyView.classList.contains("hidden")) {
     loadHistory().catch(() => {});
   }
 });
-elements.search.addEventListener("input", renderChats);
+// Debounced search — avoids re-render on every keypress
+elements.search.addEventListener("input", debounce(renderChats, 250));
 elements.selectAll.addEventListener("change", () => {
   state.selected = new Set(
     elements.selectAll.checked

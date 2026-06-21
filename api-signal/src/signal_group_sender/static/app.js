@@ -88,6 +88,15 @@ function escapeHtml(value) {
   return div.innerHTML;
 }
 
+/** Returns a debounced version of fn that fires after `wait` ms of silence. */
+function debounce(fn, wait = 300) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), wait);
+  };
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
@@ -232,24 +241,48 @@ function renderGroups() {
   const visible = state.groups.filter((group) =>
     group.name.toLocaleLowerCase("ru").includes(query)
   );
-  elements.list.innerHTML = visible.map((group) => `
-    <label class="group-row">
-      <input type="checkbox" data-alias="${escapeHtml(group.alias)}"
-        ${state.selected.has(group.alias) ? "checked" : ""}
-        ${group.available ? "" : "disabled"}>
-      <span class="group-name" title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</span>
-      <span class="availability ${group.available ? "" : "offline"}"
-        title="${group.available ? "Доступна" : "Недоступна"}"></span>
-    </label>
-  `).join("") || '<div class="empty-state">Группы не найдены.</div>';
 
-  elements.list.querySelectorAll("input[data-alias]").forEach((input) => {
-    input.addEventListener("change", () => {
-      if (input.checked) state.selected.add(input.dataset.alias);
-      else state.selected.delete(input.dataset.alias);
-      updateSelection();
-    });
-  });
+  // DocumentFragment for batched DOM update — no repeated reflows
+  const fragment = document.createDocumentFragment();
+
+  if (visible.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "Группы не найдены.";
+    fragment.appendChild(empty);
+  } else {
+    for (const group of visible) {
+      const label = document.createElement("label");
+      label.className = "group-row";
+
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.dataset.alias = group.alias;
+      input.checked = state.selected.has(group.alias);
+      input.disabled = !group.available;
+      input.addEventListener("change", () => {
+        if (input.checked) state.selected.add(group.alias);
+        else state.selected.delete(group.alias);
+        updateSelection();
+      });
+
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "group-name";
+      nameSpan.title = group.name;
+      nameSpan.textContent = group.name;
+
+      const dot = document.createElement("span");
+      dot.className = `availability${group.available ? "" : " offline"}`;
+      dot.title = group.available ? "Доступна" : "Недоступна";
+
+      label.appendChild(input);
+      label.appendChild(nameSpan);
+      label.appendChild(dot);
+      fragment.appendChild(label);
+    }
+  }
+
+  elements.list.replaceChildren(fragment);
 }
 
 function renderAccounts(activeNumber) {
@@ -263,13 +296,13 @@ function renderAccounts(activeNumber) {
 
 async function loadStatus() {
   elements.refresh.disabled = true;
+  elements.refresh.classList.add("refreshing");
   showError();
   try {
     const payload = await api("/api/status");
     state.groups = payload.groups;
     state.accounts = payload.accounts || [];
     
-    // Apply draft groups selection if restored
     if (state.savedDraftSelected) {
       state.selected = new Set(
         [...state.savedDraftSelected].filter((alias) =>
@@ -300,6 +333,7 @@ async function loadStatus() {
     throw error;
   } finally {
     elements.refresh.disabled = false;
+    elements.refresh.classList.remove("refreshing");
   }
 }
 
@@ -581,13 +615,20 @@ function playNotificationSound() {
 /* Stats Widget */
 async function loadStats() {
   try {
+    [elements.statHourly, elements.statDaily, elements.statSuccess, elements.statRemaining]
+      .forEach((el) => el?.classList.add("updating"));
     const stats = await api("/api/stats");
     elements.statHourly.textContent = stats.hourly_count;
     elements.statDaily.textContent = stats.daily_count;
     elements.statSuccess.textContent = `${stats.success_rate}%`;
     elements.statRemaining.textContent = `${stats.hourly_remaining} / ${stats.daily_remaining}`;
+    [elements.statHourly, elements.statDaily, elements.statSuccess, elements.statRemaining]
+      .forEach((el) => el?.classList.remove("updating"));
   } catch { /* silently ignore on stats failure */ }
 }
+
+// Auto-refresh stats every 60 seconds
+setInterval(() => loadStats().catch(() => {}), 60_000);
 
 function renderTelegramPanelState(payload) {
   const available = Boolean(payload?.available);
@@ -771,11 +812,13 @@ function restoreDraft() {
 
 elements.refresh.addEventListener("click", () => {
   loadStatus().catch(() => {});
+  loadStats().catch(() => {});
   if (!elements.historyView.classList.contains("hidden")) {
     loadHistory().catch(() => {});
   }
 });
-elements.search.addEventListener("input", renderGroups);
+// Debounced search — avoids re-render on every keypress
+elements.search.addEventListener("input", debounce(renderGroups, 250));
 elements.selectAll.addEventListener("change", () => {
   state.selected = new Set(
     elements.selectAll.checked
