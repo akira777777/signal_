@@ -237,6 +237,10 @@ def main(argv: list[str] | None = None) -> int:
             return _run_send(args, settings)
         if args.command == "history":
             return _run_history(args, settings)
+    except TelegramAuthRequiredError as exc:
+        LOGGER.error("%s", exc)
+        LOGGER.error("Run `telegram-groups login` first or sign in via the web panel.")
+        return 1
     except (
         LockError,
         StateError,
@@ -246,10 +250,6 @@ def main(argv: list[str] | None = None) -> int:
         TelegramTargetError,
     ) as exc:
         LOGGER.error("%s", exc)
-        return 1
-    except TelegramAuthRequiredError as exc:
-        LOGGER.error("%s", exc)
-        LOGGER.error("Run `telegram-groups login` first or sign in via the web panel.")
         return 1
 
     parser.error("Unknown command")

@@ -3,6 +3,9 @@
 Небольшой CLI для контролируемой отправки одного сообщения в несколько заранее
 разрешённых групп Signal.
 
+В репозитории также есть отдельный Telegram-рассыльщик с похожими ограничениями
+безопасности, историей отправок и локальной веб-панелью.
+
 Важно: у Signal нет официального публичного Bot API. Проект использует неофициальный
 `signal-cli` через контейнер `signal-cli-rest-api`. Это подходит для внутренних
 уведомлений и групп, участники которых согласились получать такие сообщения. Не
@@ -31,6 +34,11 @@
 - Docker Desktop либо Docker Engine с Compose;
 - работающий Signal на телефоне;
 - свободный слот связанного устройства Signal.
+
+Для Telegram дополнительно нужны:
+
+- `api_id` и `api_hash` приложения Telegram;
+- номер телефона Telegram-аккаунта в формате E.164.
 
 ## Установка
 
@@ -214,6 +222,63 @@ ruff check .
 mypy src
 pytest
 ```
+
+## Telegram broadcaster
+
+Telegram-ветка использует пользовательскую сессию Telegram через `Telethon`, а
+не Bot API. Поэтому панель видит живые диалоги аккаунта: личные чаты, группы,
+супергруппы и каналы, где у аккаунта есть право писать.
+
+Заполните в `.env`:
+
+```dotenv
+TELEGRAM_API_ID=123456
+TELEGRAM_API_HASH=0123456789abcdef0123456789abcdef
+TELEGRAM_PHONE=+420123456789
+TELEGRAM_WEB_PASSWORD=1111
+```
+
+Запуск локальной Telegram-панели:
+
+```powershell
+docker compose up -d telegram-dashboard
+```
+
+Откройте:
+
+```text
+http://127.0.0.1:8788
+```
+
+Сначала войдите в локальную панель по `TELEGRAM_WEB_PASSWORD`, затем нажмите
+«Войти в Telegram». Панель отправит код подтверждения на номер из `.env`; если
+для аккаунта включена двухэтапная проверка, после кода она попросит пароль 2FA.
+
+CLI-вариант тоже доступен:
+
+```powershell
+docker compose --profile telegram-cli run --rm telegram-broadcaster login
+docker compose --profile telegram-cli run --rm telegram-broadcaster chats
+```
+
+Dry-run рассылки по всем доступным чатам:
+
+```powershell
+Get-Content .\message.txt -Raw | docker compose --profile telegram-cli run --rm -T `
+  telegram-broadcaster send --all-live --stdin
+```
+
+Реальная отправка после dry-run:
+
+```powershell
+Get-Content .\message.txt -Raw | docker compose --profile telegram-cli run --rm -T `
+  telegram-broadcaster send --all-live --stdin --execute --confirm-count COUNT_FROM_DRY_RUN `
+  --confirm-token TOKEN_FROM_DRY_RUN
+```
+
+Telegram-рассыльщик использует отдельные файлы состояния и lock-файлы
+(`TELEGRAM_STATE_FILE`, `TELEGRAM_STATE_SECRET_FILE`, `TELEGRAM_LOCK_FILE`) и
+не пересекается с Signal-историей.
 
 ## Эксплуатационные ограничения
 

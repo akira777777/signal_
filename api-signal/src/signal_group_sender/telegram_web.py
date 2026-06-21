@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import base64
-import binascii
 import hashlib
 import hmac
 import logging
 import os
-import secrets
 import threading
-import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
@@ -46,19 +42,17 @@ from signal_group_sender.telegram_targets import (
     TelegramTargetError,
     select_targets,
 )
+from signal_group_sender.web_common import (
+    MAX_IMAGE_DATA_URL_CHARS,
+    SignedSessionManager,
+    require_json_same_origin,
+    validate_image_data_urls,
+)
 
 LOGGER = logging.getLogger("signal_group_sender.telegram_web")
 PACKAGE_DIRECTORY = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=PACKAGE_DIRECTORY / "templates")
-MAX_IMAGE_BYTES = 8 * 1024 * 1024
-MAX_TOTAL_IMAGE_BYTES = 20 * 1024 * 1024
-MAX_IMAGE_DATA_URL_CHARS = 11_200_000
-IMAGE_SIGNATURES = {
-    "image/png": (b"\x89PNG\r\n\x1a\n",),
-    "image/jpeg": (b"\xff\xd8\xff",),
-    "image/gif": (b"GIF87a", b"GIF89a"),
-    "image/webp": (b"RIFF",),
-}
+ALLOWED_ORIGINS = {"http://127.0.0.1:8788", "http://localhost:8788"}
 IMAGE_EXTENSIONS = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
@@ -103,6 +97,7 @@ class TelegramWebContext:
         self.settings = settings
         self.web_password = web_password
         self.session_secret = load_or_create_hmac_key(settings.state_secret_file)
+        self._session_manager = SignedSessionManager(self.session_secret)
         self._auth_lock = threading.RLock()
         self._pending_phone_code_hash: str | None = None
 
@@ -160,40 +155,14 @@ class TelegramWebContext:
         return True
 
     def issue_session(self) -> str:
-        expires_at = int(time.time()) + 8 * 3600
-        nonce = secrets.token_hex(16)
-        payload = f"{expires_at}.{nonce}"
-        signature = hmac.new(
-            self.session_secret, payload.encode(), hashlib.sha256
-        ).hexdigest()
-        return f"{payload}.{signature}"
+        return self._session_manager.issue()
 
     def valid_session(self, token: str | None) -> bool:
-        if not token:
-            return False
-        parts = token.split(".")
-        if len(parts) != 3:
-            return False
-        expires_at, nonce, supplied_signature = parts
-        if not expires_at.isdigit() or len(nonce) != 32:
-            return False
-        if int(expires_at) <= int(time.time()):
-            return False
-        payload = f"{expires_at}.{nonce}"
-        expected = hmac.new(
-            self.session_secret, payload.encode(), hashlib.sha256
-        ).hexdigest()
-        return hmac.compare_digest(supplied_signature, expected)
+        return self._session_manager.valid(token)
 
 
 def _same_origin(request: Request) -> None:
-    if request.method in {"GET", "HEAD", "OPTIONS"}:
-        return
-    origin = request.headers.get("origin")
-    if origin not in {"http://127.0.0.1:8788", "http://localhost:8788"}:
-        raise HTTPException(status_code=403, detail="Invalid request origin")
-    if request.headers.get("content-type", "").split(";", 1)[0] != "application/json":
-        raise HTTPException(status_code=415, detail="JSON request required")
+    require_json_same_origin(request, allowed_origins=ALLOWED_ORIGINS)
 
 
 def _context(request: Request) -> TelegramWebContext:
@@ -223,42 +192,16 @@ def _chat_view(target: ChatTarget) -> dict[str, Any]:
 
 
 def _validated_images(images: list[str]) -> tuple[list[TelegramAttachment], tuple[str, ...]]:
-    attachments: list[TelegramAttachment] = []
-    digests: list[str] = []
-    total_bytes = 0
-    for index, image in enumerate(images, start=1):
-        if not image.startswith("data:") or ";base64," not in image:
-            raise TelegramBroadcastError("Image must use a base64 data URL")
-        header, encoded = image.split(",", 1)
-        media_type = header[5:].split(";", 1)[0].lower()
-        signatures = IMAGE_SIGNATURES.get(media_type)
-        if signatures is None:
-            raise TelegramBroadcastError("Only PNG, JPEG, WebP and GIF images are allowed")
-        try:
-            raw = base64.b64decode(encoded, validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise TelegramBroadcastError("Image contains invalid base64 data") from exc
-        if not raw or len(raw) > MAX_IMAGE_BYTES:
-            raise TelegramBroadcastError("Each image must be between 1 byte and 8 MB")
-        if media_type == "image/webp":
-            valid_signature = raw.startswith(b"RIFF") and raw[8:12] == b"WEBP"
-        else:
-            valid_signature = any(raw.startswith(prefix) for prefix in signatures)
-        if not valid_signature:
-            raise TelegramBroadcastError("Image content does not match its MIME type")
-        total_bytes += len(raw)
-        if total_bytes > MAX_TOTAL_IMAGE_BYTES:
-            raise TelegramBroadcastError("Total image size must not exceed 20 MB")
-        digest = hashlib.sha256(raw).hexdigest()
-        digests.append(digest)
-        attachments.append(
-            TelegramAttachment(
-                name=f"telegram-image-{index}{IMAGE_EXTENSIONS[media_type]}",
-                mime_type=media_type,
-                content=raw,
-            )
+    validated = validate_image_data_urls(images, error_type=TelegramBroadcastError)
+    attachments = [
+        TelegramAttachment(
+            name=f"telegram-image-{index}{IMAGE_EXTENSIONS[image.media_type]}",
+            mime_type=image.media_type,
+            content=image.raw,
         )
-    return attachments, tuple(digests)
+        for index, image in enumerate(validated, start=1)
+    ]
+    return attachments, tuple(image.digest for image in validated)
 
 
 def create_app(
@@ -341,6 +284,7 @@ def create_app(
     def status(context: ContextDependency, _: AuthDependency) -> dict[str, Any]:
         try:
             authorized = context.is_authorized()
+            targets = context.live_targets() if authorized else {}
         except TelegramApiError as exc:
             return {
                 "connected": False,
@@ -357,7 +301,6 @@ def create_app(
                 "phone": context.settings.phone_number,
                 "chats": [],
             }
-        targets = context.live_targets()
         return {
             "connected": True,
             "authorized": True,

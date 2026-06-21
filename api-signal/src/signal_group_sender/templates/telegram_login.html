@@ -4,12 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Вход — Telegram Панель</title>
+  <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}" type="image/svg+xml">
   <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
-  <script>
-    if (localStorage.getItem("theme") === "dark" || (!localStorage.getItem("theme") && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
-      document.documentElement.classList.add("dark-theme");
-    }
-  </script>
 </head>
 <body class="login-page">
   <main class="login-card">
@@ -18,7 +14,7 @@
       <span>Telegram Панель</span>
     </div>
     <h1>Вход в панель</h1>
-    <p>Введите локальный пароль управления Telegram-рассылками.</p>
+    <p>Введите локальный пароль и затем выполните вход в Telegram.</p>
     <form id="login-form">
       <label class="field-label" for="password">Пароль</label>
       <input id="password" type="password" autocomplete="current-password" placeholder="••••" required autofocus>
@@ -45,7 +41,7 @@
         const payload = await response.json();
         errorBox.textContent = payload.detail || "Ошибка входа";
         errorBox.classList.remove("hidden");
-      } catch {
+      } catch (error) {
         errorBox.textContent = "Не удалось связаться с сервером";
         errorBox.classList.remove("hidden");
       }
