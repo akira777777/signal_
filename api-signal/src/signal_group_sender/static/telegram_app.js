@@ -10,8 +10,6 @@ const state = {
   savedDraftSelected: null,
 };
 
-const initialStatus = window.__TELEGRAM_INITIAL_STATUS__ || null;
-
 const elements = {
   connectionDot: document.querySelector("#connection-dot"),
   connectionTitle: document.querySelector("#connection-title"),
@@ -254,18 +252,6 @@ async function loadStatus() {
   showError();
   try {
     const payload = await api("/api/status");
-    applyStatusPayload(payload);
-  } catch (error) {
-    elements.connectionDot.className = "status-dot error";
-    elements.connectionTitle.textContent = "Ошибка";
-    elements.connectionCopy.textContent = error.message;
-    showError(error.message);
-  } finally {
-    elements.refresh.disabled = false;
-  }
-}
-
-function applyStatusPayload(payload) {
     state.phone = payload.phone || "";
     state.authorized = payload.authorized === true;
     state.chats = (payload.chats || []).map((chat) => ({...chat, available: chat.available !== false}));
@@ -300,6 +286,14 @@ function applyStatusPayload(payload) {
     elements.connectionCopy.textContent = payload.message || "—";
     renderChats();
     updateSelection();
+  } catch (error) {
+    elements.connectionDot.className = "status-dot error";
+    elements.connectionTitle.textContent = "Ошибка";
+    elements.connectionCopy.textContent = error.message;
+    showError(error.message);
+  } finally {
+    elements.refresh.disabled = false;
+  }
 }
 
 async function createPlan() {
@@ -805,9 +799,6 @@ document.addEventListener("keydown", (event) => {
 
 initTheme();
 restoreDraft();
-if (initialStatus) {
-  applyStatusPayload(initialStatus);
-}
 refreshDashboard();
 window.addEventListener("pageshow", () => {
   if (needsStatusHydration()) {

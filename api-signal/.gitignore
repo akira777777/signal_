@@ -12,5 +12,10 @@ groups.json
 .signal-sender-state.json
 .signal-sender-secret
 .signal-sender.lock
+.telegram.session
+.telegram.session-journal
+.telegram.session.lock
+.telegram-sender-secret
+.telegram-sender-state.json
 signal-cli-config/
 outputs/signal-link.png
