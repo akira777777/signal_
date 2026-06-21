@@ -85,7 +85,13 @@ def test_auth_complete_can_require_password(
 ) -> None:
     monkeypatch.setattr(TelegramApiClient, "request_code", lambda self: "hash-123")
 
-    def require_password(self: TelegramApiClient, code: str, phone_code_hash: str, *, password: str | None = None) -> None:
+    def require_password(
+        self: TelegramApiClient,
+        code: str,
+        phone_code_hash: str,
+        *,
+        password: str | None = None,
+    ) -> None:
         from signal_group_sender.telegram_client import TelegramPasswordRequiredError
 
         raise TelegramPasswordRequiredError("password needed")
