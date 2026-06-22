@@ -6,7 +6,6 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from signal_group_sender import web
 from signal_group_sender.client import SignalApiClient
 from signal_group_sender.config import Settings
 from signal_group_sender.service import BroadcastError, BroadcastResult, BroadcastService

@@ -5,17 +5,12 @@ import hashlib
 import hmac
 import logging
 import os
-import subprocess
-import sys
 import threading
-import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Annotated, Any, cast
-from urllib.parse import urlparse
 
-import requests
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -358,7 +353,7 @@ def create_app(
     async def add_security_headers(request: Request, call_next: Any) -> Response:
         response = await call_next(request)
         response.headers["Permissions-Policy"] = "unload=*"
-        return response
+        return cast(Response, response)
 
     app.mount(
         "/static",
