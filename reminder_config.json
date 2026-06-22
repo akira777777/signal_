@@ -1,0 +1,26 @@
+{
+  "message_text_file": "message.txt",
+  "video_path": "C:\\Users\\novra\\Downloads\\Telegram Desktop\\grok-1a43304e-ca30-4397-87bc-935bf9add685-720p.mp4",
+  "min_interval_minutes": 30,
+  "max_interval_minutes": 60,
+  "enable_spintax": false,
+
+  "telegram": {
+    "enabled": true,
+    "api_id": 38690162,
+    "api_hash": "238a5673793fc596ba2cf39be0678d93",
+    "session_name": "C:\\Users\\novra\\Desktop\\bot_tg\\session_broadcast",
+    "folder_name": "Без лимитов",
+    "min_delay_between_chats": 15,
+    "max_delay_between_chats": 30
+  },
+
+  "signal": {
+    "enabled": true,
+    "dashboard_url": "http://127.0.0.1:8787",
+    "password": "1111",
+    "number": "+420737500587",
+    "min_delay_between_groups": 2,
+    "max_delay_between_groups": 5
+  }
+}
