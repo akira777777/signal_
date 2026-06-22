@@ -4,12 +4,13 @@
   "min_interval_minutes": 30,
   "max_interval_minutes": 60,
   "enable_spintax": false,
+  "blacklist_file": "blacklist.json",
 
   "telegram": {
     "enabled": true,
     "api_id": 38690162,
     "api_hash": "238a5673793fc596ba2cf39be0678d93",
-    "session_name": "C:\\Users\\novra\\Desktop\\bot_tg\\session_broadcast",
+    "session_dir": "C:\\Users\\novra\\Desktop\\bot_tg",
     "folder_name": "Без лимитов",
     "min_delay_between_chats": 15,
     "max_delay_between_chats": 30

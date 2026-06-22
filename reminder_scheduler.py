@@ -113,12 +113,82 @@ def parse_spintax(text: str) -> str:
     return text
 
 
+def get_blacklist_path(cfg: dict) -> Path:
+    bf = cfg.get("blacklist_file", "blacklist.json")
+    return SCRIPT_DIR / bf if not Path(bf).is_absolute() else Path(bf)
+
+
+def load_blacklist(cfg: dict) -> set:
+    path = get_blacklist_path(cfg)
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return set(json.load(f))
+        except Exception as e:
+            logger.warning(f"Не удалось загрузить blacklist: {e}")
+    return set()
+
+
+def save_blacklist(cfg: dict, bl_set: set):
+    path = get_blacklist_path(cfg)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(list(bl_set), f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        logger.warning(f"Не удалось сохранить blacklist: {e}")
+
+
+def add_to_blacklist(cfg: dict, peer_key: str):
+    bl = load_blacklist(cfg)
+    if peer_key not in bl:
+        bl.add(peer_key)
+        save_blacklist(cfg, bl)
+        logger.info(f"Добавлен в черный список: {peer_key}")
+
+
+def get_state_path(session_name: str) -> Path:
+    return SCRIPT_DIR / f"broadcast_state_{session_name}.json"
+
+
+def load_state(session_name: str) -> set:
+    path = get_state_path(session_name)
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return set(json.load(f).get("processed", []))
+        except Exception:
+            pass
+    return set()
+
+
+def save_state(session_name: str, processed: set):
+    path = get_state_path(session_name)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"processed": list(processed)}, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def clear_state(session_name: str):
+    path = get_state_path(session_name)
+    if path.exists():
+        path.unlink(missing_ok=True)
+
+
+def get_peer_key(peer) -> str:
+    if hasattr(peer, "channel_id"): return f"channel_{peer.channel_id}"
+    if hasattr(peer, "chat_id"): return f"chat_{peer.chat_id}"
+    if hasattr(peer, "user_id"): return f"user_{peer.user_id}"
+    return str(peer)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Telegram Sender
 # ═══════════════════════════════════════════════════════════════════════════
 
 async def send_telegram(cfg: dict, dry_run: bool = False) -> dict:
-    """Send reminders to all Telegram chats in the configured folder."""
+    """Send reminders to all Telegram chats in the configured folder across all sessions."""
     tg_cfg = cfg.get("telegram", {})
     if not tg_cfg.get("enabled", False):
         logger.info("Telegram отключён в конфиге — пропускаем")
@@ -139,134 +209,200 @@ async def send_telegram(cfg: dict, dry_run: bool = False) -> dict:
 
     api_id = tg_cfg["api_id"]
     api_hash = tg_cfg["api_hash"]
-    session_name = tg_cfg.get("session_name", "session_reminder")
+    session_dir = tg_cfg.get("session_dir", ".")
     folder_name = tg_cfg.get("folder_name", "Без лимитов")
     min_delay = tg_cfg.get("min_delay_between_chats", 15)
     max_delay = tg_cfg.get("max_delay_between_chats", 30)
 
     message_text = cfg["message_text"]
-    if cfg.get("enable_spintax"):
-        message_text = parse_spintax(message_text)
-
     video_path = cfg.get("video_path")
 
-    # Resolve session path — support both absolute paths and names relative to script dir
-    if Path(session_name).is_absolute() or os.path.exists(session_name + ".session"):
-        session_path = session_name
-    else:
-        session_path = str(SCRIPT_DIR / session_name)
-    client = TelegramClient(session_path, api_id, api_hash)
-
-    try:
-        await client.start()
-    except Exception as e:
-        logger.error(f"Telegram: ошибка авторизации — {e}")
+    # Find all sessions
+    sessions = []
+    if Path(session_dir).exists():
+        for f in os.listdir(session_dir):
+            if f.endswith(".session"):
+                sessions.append(Path(session_dir) / f)
+    
+    if not sessions:
+        logger.warning(f"Telegram: не найдено файлов .session в директории '{session_dir}'")
         return {"success": 0, "fail": 0, "total": 0, "skipped": True}
 
-    logger.info("Telegram: авторизация успешна. Получаю папки...")
+    logger.info(f"Telegram: найдено {len(sessions)} сессий: {[s.stem for s in sessions]}")
 
-    # Find target folder
-    filters_result = await client(GetDialogFiltersRequest())
-    target_filter = None
-    for f in filters_result.filters:
-        f_title = getattr(f.title, "text", f.title) if hasattr(f, "title") else None
-        if isinstance(f, DialogFilter) and f_title == folder_name:
-            target_filter = f
-            break
+    global_success = 0
+    global_fail = 0
+    global_total = 0
 
-    if not target_filter:
-        logger.error(f"Telegram: папка '{folder_name}' не найдена")
-        await client.disconnect()
-        return {"success": 0, "fail": 0, "total": 0, "skipped": True}
+    blacklist = load_blacklist(cfg)
 
-    peers = target_filter.include_peers
-    logger.info(f"Telegram: найдено {len(peers)} чатов в папке '{folder_name}'")
-
-    if dry_run:
-        for i, peer in enumerate(peers, 1):
-            try:
-                entity = await client.get_entity(peer)
-                name = getattr(entity, "title", getattr(entity, "first_name", "?"))
-            except Exception:
-                name = f"ID {getattr(peer, 'chat_id', getattr(peer, 'channel_id', '?'))}"
-            logger.info(f"  [{i}/{len(peers)}] {name}")
-        await client.disconnect()
-        return {"success": 0, "fail": 0, "total": len(peers), "skipped": False}
-
-    success_count = 0
-    fail_count = 0
-
-    for idx, peer in enumerate(peers, 1):
-        # Check shutdown
+    for session_path in sessions:
         if SHUTDOWN_EVENT and SHUTDOWN_EVENT.is_set():
-            logger.info("Telegram: получен сигнал остановки, прерываю цикл")
+            logger.info("Telegram: получен сигнал остановки, прерываю перебор сессий")
             break
+
+        session_name = session_path.stem
+        logger.info(f"\n--- Telegram: Запуск сессии '{session_name}' ---")
+        client = TelegramClient(str(session_path).replace(".session", ""), api_id, api_hash)
 
         try:
-            entity = await client.get_entity(peer)
-            chat_name = getattr(entity, "title", getattr(entity, "first_name", "Неизвестный"))
-        except Exception:
-            chat_name = f"ID {getattr(peer, 'chat_id', getattr(peer, 'channel_id', '?'))}"
+            await client.start()
+        except Exception as e:
+            logger.error(f"Telegram [{session_name}]: ошибка авторизации — {e}")
+            continue
 
-        logger.info(f"Telegram: [{idx}/{len(peers)}] Отправка в '{chat_name}'...")
+        # Find target folder
+        try:
+            filters_result = await client(GetDialogFiltersRequest())
+        except Exception as e:
+            logger.error(f"Telegram [{session_name}]: ошибка получения папок — {e}")
+            await client.disconnect()
+            continue
 
-        sent = False
-        # Try with video first
-        if video_path:
-            try:
-                await client.send_file(peer, video_path, caption=message_text)
-                sent = True
-                logger.info(f"Telegram: [{idx}/{len(peers)}] ✅ Видео+текст → '{chat_name}'")
-            except FloodWaitError as e:
-                logger.warning(f"Telegram: FloodWait {e.seconds}s — ожидаю...")
-                await asyncio.sleep(e.seconds)
-                try:
-                    await client.send_file(peer, video_path, caption=message_text)
-                    sent = True
-                    logger.info(f"Telegram: [{idx}/{len(peers)}] ✅ Видео+текст (после ожидания) → '{chat_name}'")
-                except Exception as e2:
-                    logger.warning(f"Telegram: [{idx}/{len(peers)}] ⚠ Видео не прошло после FloodWait: {e2}")
-            except (ChatWriteForbiddenError, UserBannedInChannelError) as e:
-                logger.error(f"Telegram: [{idx}/{len(peers)}] ❌ Нет прав → '{chat_name}': {e}")
-                fail_count += 1
+        target_filter = None
+        for f in filters_result.filters:
+            f_title = getattr(f.title, "text", f.title) if hasattr(f, "title") else None
+            if isinstance(f, DialogFilter) and f_title == folder_name:
+                target_filter = f
+                break
+
+        if not target_filter:
+            logger.error(f"Telegram [{session_name}]: папка '{folder_name}' не найдена")
+            await client.disconnect()
+            continue
+
+        all_peers = target_filter.include_peers
+        
+        # Load state for this session to skip already processed peers
+        processed = load_state(session_name)
+        
+        peers_to_process = []
+        for p in all_peers:
+            key = get_peer_key(p)
+            if key in blacklist:
+                # logger.info(f"Telegram [{session_name}]: Чат {key} в черном списке, пропускаем.")
                 continue
-            except Exception as e:
-                logger.warning(f"Telegram: [{idx}/{len(peers)}] ⚠ Видео не прошло → '{chat_name}': {e}")
+            if key in processed:
+                continue
+            peers_to_process.append(p)
 
-        # Fallback: text only
-        if not sent:
-            try:
-                await client.send_message(peer, message_text)
-                sent = True
-                logger.info(f"Telegram: [{idx}/{len(peers)}] ✅ Текст → '{chat_name}'")
-            except FloodWaitError as e:
-                logger.warning(f"Telegram: FloodWait {e.seconds}s — ожидаю...")
-                await asyncio.sleep(e.seconds)
+        logger.info(f"Telegram [{session_name}]: найдено {len(all_peers)} чатов в папке '{folder_name}'. "
+                    f"Черный список отсеял {len([p for p in all_peers if get_peer_key(p) in blacklist])}. "
+                    f"Уже обработано: {len([p for p in all_peers if get_peer_key(p) in processed])}. "
+                    f"Осталось обработать: {len(peers_to_process)}.")
+
+        global_total += len(peers_to_process)
+
+        if dry_run:
+            for i, peer in enumerate(peers_to_process, 1):
                 try:
-                    await client.send_message(peer, message_text)
+                    entity = await client.get_entity(peer)
+                    name = getattr(entity, "title", getattr(entity, "first_name", "?"))
+                except Exception:
+                    name = f"ID {getattr(peer, 'chat_id', getattr(peer, 'channel_id', '?'))}"
+                logger.info(f"  [{session_name}] [{i}/{len(peers_to_process)}] {name}")
+            await client.disconnect()
+            continue
+
+        session_success = 0
+        session_fail = 0
+
+        for idx, peer in enumerate(peers_to_process, 1):
+            if SHUTDOWN_EVENT and SHUTDOWN_EVENT.is_set():
+                logger.info(f"Telegram [{session_name}]: получен сигнал остановки, прерываю цикл")
+                break
+
+            peer_key = get_peer_key(peer)
+
+            try:
+                entity = await client.get_entity(peer)
+                chat_name = getattr(entity, "title", getattr(entity, "first_name", "Неизвестный"))
+            except Exception:
+                chat_name = f"ID {getattr(peer, 'chat_id', getattr(peer, 'channel_id', '?'))}"
+
+            logger.info(f"Telegram [{session_name}]: [{idx}/{len(peers_to_process)}] Отправка в '{chat_name}'...")
+
+            msg_to_send = message_text
+            if cfg.get("enable_spintax"):
+                msg_to_send = parse_spintax(msg_to_send)
+
+            sent = False
+            fatal_error = False
+
+            if video_path:
+                try:
+                    await client.send_file(peer, video_path, caption=msg_to_send)
                     sent = True
-                    logger.info(f"Telegram: [{idx}/{len(peers)}] ✅ Текст (после ожидания) → '{chat_name}'")
-                except Exception as e2:
-                    logger.error(f"Telegram: [{idx}/{len(peers)}] ❌ Текст тоже не прошёл → '{chat_name}': {e2}")
-            except (ChatWriteForbiddenError, UserBannedInChannelError) as e:
-                logger.error(f"Telegram: [{idx}/{len(peers)}] ❌ Нет прав → '{chat_name}': {e}")
-            except Exception as e:
-                logger.error(f"Telegram: [{idx}/{len(peers)}] ❌ Ошибка → '{chat_name}': {e}")
+                    logger.info(f"Telegram [{session_name}]: [{idx}/{len(peers_to_process)}] ✅ Видео+текст → '{chat_name}'")
+                except FloodWaitError as e:
+                    logger.warning(f"Telegram [{session_name}]: FloodWait {e.seconds}s — ожидаю...")
+                    await asyncio.sleep(e.seconds)
+                    try:
+                        await client.send_file(peer, video_path, caption=msg_to_send)
+                        sent = True
+                        logger.info(f"Telegram [{session_name}]: [{idx}/{len(peers_to_process)}] ✅ Видео+текст (после ожидания) → '{chat_name}'")
+                    except Exception as e2:
+                        logger.warning(f"Telegram [{session_name}]: [{idx}/{len(peers_to_process)}] ⚠ Видео не прошло после FloodWait: {e2}")
+                        if any(x in str(e2).lower() for x in ["banned", "forbidden", "restricted", "closed", "can't write", "cannot write", "payment_required"]): fatal_error = True
+                except (ChatWriteForbiddenError, UserBannedInChannelError) as e:
+                    logger.error(f"Telegram [{session_name}]: [{idx}/{len(peers_to_process)}] ❌ Нет прав → '{chat_name}': {e}")
+                    fatal_error = True
+                except Exception as e:
+                    logger.warning(f"Telegram [{session_name}]: [{idx}/{len(peers_to_process)}] ⚠ Видео не прошло → '{chat_name}': {e}")
+                    if any(x in str(e).lower() for x in ["banned", "forbidden", "restricted", "closed", "can't write", "cannot write", "payment_required"]): fatal_error = True
 
-        if sent:
-            success_count += 1
-        else:
-            fail_count += 1
+            if not sent and not fatal_error:
+                try:
+                    await client.send_message(peer, msg_to_send)
+                    sent = True
+                    logger.info(f"Telegram [{session_name}]: [{idx}/{len(peers_to_process)}] ✅ Текст → '{chat_name}'")
+                except FloodWaitError as e:
+                    logger.warning(f"Telegram [{session_name}]: FloodWait {e.seconds}s — ожидаю...")
+                    await asyncio.sleep(e.seconds)
+                    try:
+                        await client.send_message(peer, msg_to_send)
+                        sent = True
+                        logger.info(f"Telegram [{session_name}]: [{idx}/{len(peers_to_process)}] ✅ Текст (после ожидания) → '{chat_name}'")
+                    except Exception as e2:
+                        logger.error(f"Telegram [{session_name}]: [{idx}/{len(peers_to_process)}] ❌ Текст тоже не прошёл → '{chat_name}': {e2}")
+                        if any(x in str(e2).lower() for x in ["banned", "forbidden", "restricted", "closed", "can't write", "cannot write", "payment_required"]): fatal_error = True
+                except (ChatWriteForbiddenError, UserBannedInChannelError) as e:
+                    logger.error(f"Telegram [{session_name}]: [{idx}/{len(peers_to_process)}] ❌ Нет прав → '{chat_name}': {e}")
+                    fatal_error = True
+                except Exception as e:
+                    logger.error(f"Telegram [{session_name}]: [{idx}/{len(peers_to_process)}] ❌ Ошибка → '{chat_name}': {e}")
+                    if any(x in str(e).lower() for x in ["banned", "forbidden", "restricted", "closed", "can't write", "cannot write", "payment_required"]): fatal_error = True
 
-        # Delay between chats
-        if idx < len(peers):
-            delay = random.randint(min_delay, max_delay)
-            logger.info(f"Telegram: ожидание {delay} сек перед следующим чатом...")
-            await asyncio.sleep(delay)
+            if sent:
+                session_success += 1
+            else:
+                session_fail += 1
 
-    await client.disconnect()
-    logger.info(f"Telegram: завершено. ✅ {success_count} | ❌ {fail_count}")
-    return {"success": success_count, "fail": fail_count, "total": len(peers), "skipped": False}
+            if fatal_error:
+                logger.warning(f"Telegram [{session_name}]: Обнаружена неустранимая ошибка для '{chat_name}'. Заносим в черный список.")
+                add_to_blacklist(cfg, peer_key)
+                blacklist.add(peer_key)
+            
+            # Save progress
+            processed.add(peer_key)
+            save_state(session_name, processed)
+
+            if idx < len(peers_to_process):
+                delay = random.randint(min_delay, max_delay)
+                logger.info(f"Telegram [{session_name}]: ожидание {delay} сек перед следующим чатом...")
+                await asyncio.sleep(delay)
+
+        await client.disconnect()
+        logger.info(f"Telegram [{session_name}]: сессия завершена. ✅ {session_success} | ❌ {session_fail}")
+        
+        global_success += session_success
+        global_fail += session_fail
+        
+        # Очищаем state после полного прохода по всем чатам папки в данной сессии
+        if not (SHUTDOWN_EVENT and SHUTDOWN_EVENT.is_set()):
+            clear_state(session_name)
+
+    return {"success": global_success, "fail": global_fail, "total": global_total, "skipped": False}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -348,8 +484,8 @@ def _signal_send_single(
     message: str,
     attachments: list[str],
     confirm_token: str,
-) -> bool:
-    """Call /api/send for a single group and return True if sent successfully."""
+) -> tuple[bool, str]:
+    """Call /api/send for a single group and return (success, error_reason)."""
     payload = {
         "aliases": [alias],
         "message": message,
@@ -372,17 +508,19 @@ def _signal_send_single(
             if results:
                 status = results[0].get("status")
                 if status in ("sent", "already_sent"):
-                    return True
+                    return True, ""
                 else:
                     detail = results[0].get("detail", "")
+                    reason = f"{status}: {detail}"
                     logger.warning(f"Signal: группа '{alias}' вернула статус '{status}': {detail}")
-            return False
+                    return False, reason
+            return False, "no_results"
         else:
             logger.warning(f"Signal: /api/send для '{alias}' вернул HTTP {resp.status_code}: {resp.text}")
-            return False
+            return False, f"http_{resp.status_code}"
     except Exception as e:
         logger.warning(f"Signal: ошибка /api/send для '{alias}' — {e}")
-        return False
+        return False, str(e)
 
 
 async def send_signal(cfg: dict, dry_run: bool = False) -> dict:
@@ -410,12 +548,18 @@ async def send_signal(cfg: dict, dry_run: bool = False) -> dict:
         return {"success": 0, "fail": 0, "total": 0, "skipped": True}
 
     # Get groups
-    groups = await loop.run_in_executor(None, _signal_get_groups, session, base_url)
-    if not groups:
+    all_groups = await loop.run_in_executor(None, _signal_get_groups, session, base_url)
+    if not all_groups:
         logger.warning("Signal: нет доступных групп")
         return {"success": 0, "fail": 0, "total": 0, "skipped": False}
 
-    logger.info(f"Signal: найдено {len(groups)} групп")
+    blacklist = load_blacklist(cfg)
+    groups = []
+    for g in all_groups:
+        if f"signal_{g['alias']}" not in blacklist:
+            groups.append(g)
+
+    logger.info(f"Signal: найдено {len(all_groups)} групп. Черный список отсеял {len(all_groups) - len(groups)}. Осталось: {len(groups)}")
 
     if dry_run:
         for i, g in enumerate(groups, 1):
@@ -450,6 +594,7 @@ async def send_signal(cfg: dict, dry_run: bool = False) -> dict:
 
         alias = group["alias"]
         group_name = group.get("name", alias)
+        peer_key = f"signal_{alias}"
         logger.info(f"Signal: [{idx}/{len(groups)}] Отправка в '{group_name}'...")
 
         # Resolve spintax if enabled
@@ -458,43 +603,42 @@ async def send_signal(cfg: dict, dry_run: bool = False) -> dict:
             msg_to_send = parse_spintax(msg_to_send)
 
         # Make message unique to bypass dashboard duplicate prevention (duplicate_window_seconds)
-        # We append a random number of zero-width spaces (between 1 and 15) to the end.
         unique_message = msg_to_send + ("\u200b" * random.randint(1, 15))
 
         sent = False
+        fatal_error = False
+
         # Try sending with video first
         if attachments:
-            # 1. Plan with video
             token = await loop.run_in_executor(
                 None, _signal_plan_single, session, base_url, alias, unique_message, attachments
             )
             if token:
-                # 2. Send with video
-                sent = await loop.run_in_executor(
+                sent, error_reason = await loop.run_in_executor(
                     None, _signal_send_single, session, base_url, alias, unique_message, attachments, token
                 )
                 if sent:
                     logger.info(f"Signal: [{idx}/{len(groups)}] ✅ Видео+текст → '{group_name}'")
                 else:
-                    logger.warning(f"Signal: [{idx}/{len(groups)}] ⚠ Отправка с видео не удалась, пробую фолбэк...")
+                    logger.warning(f"Signal: [{idx}/{len(groups)}] ⚠ Отправка с видео не удалась ({error_reason}), пробую фолбэк...")
+                    if any(x in error_reason.lower() for x in ["failed", "unregistered", "blocked", "not_found", "left"]): fatal_error = True
             else:
                 logger.warning(f"Signal: [{idx}/{len(groups)}] ⚠ Планирование с видео не удалось, пробую фолбэк...")
 
         # Fallback to text only
-        if not sent:
-            # 1. Plan without video
+        if not sent and not fatal_error:
             token = await loop.run_in_executor(
                 None, _signal_plan_single, session, base_url, alias, unique_message, []
             )
             if token:
-                # 2. Send without video
-                sent = await loop.run_in_executor(
+                sent, error_reason = await loop.run_in_executor(
                     None, _signal_send_single, session, base_url, alias, unique_message, [], token
                 )
                 if sent:
                     logger.info(f"Signal: [{idx}/{len(groups)}] ✅ Текст → '{group_name}'")
                 else:
-                    logger.error(f"Signal: [{idx}/{len(groups)}] ❌ Текст тоже не прошёл → '{group_name}'")
+                    logger.error(f"Signal: [{idx}/{len(groups)}] ❌ Текст тоже не прошёл → '{group_name}' ({error_reason})")
+                    if any(x in error_reason.lower() for x in ["failed", "unregistered", "blocked", "not_found", "left"]): fatal_error = True
             else:
                 logger.error(f"Signal: [{idx}/{len(groups)}] ❌ Не удалось спланировать текст → '{group_name}'")
 
@@ -503,13 +647,18 @@ async def send_signal(cfg: dict, dry_run: bool = False) -> dict:
         else:
             fail_count += 1
 
+        if fatal_error:
+            logger.warning(f"Signal: Обнаружена неустранимая ошибка для '{group_name}'. Заносим в черный список.")
+            add_to_blacklist(cfg, peer_key)
+            blacklist.add(peer_key)
+
         # Delay between groups
         if idx < len(groups):
             delay = random.randint(min_delay, max_delay)
             logger.info(f"Signal: ожидание {delay} сек перед следующей группой...")
             await asyncio.sleep(delay)
 
-    return {"success": success_count, "fail": fail_count, "total": len(groups)}
+    return {"success": success_count, "fail": fail_count, "total": len(groups), "skipped": False}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
