@@ -59,18 +59,73 @@ if /i "%CMD%"=="link" (
 if /i "%CMD%"=="up" (
     echo.
     echo [*] Starting Signal API and Dashboard...
-    docker compose up signal-api dashboard -d
-    if errorlevel 1 (
-        echo [!] Failed to start services
-        exit /b 1
+    
+    set "TOKEN="
+    set "HOSTNAME="
+    if exist .env (
+        for /f "tokens=2 delims==" %%A in ('findstr /I "CLOUDFLARE_TUNNEL_TOKEN" .env 2^>nul') do (
+            set "TOKEN=%%A"
+        )
+        for /f "tokens=2 delims==" %%A in ('findstr /I "CLOUDFLARE_TUNNEL_HOSTNAME" .env 2^>nul') do (
+            set "HOSTNAME=%%A"
+        )
     )
-    timeout /t 5 /nobreak
-    echo.
-    echo [+] Services started!
-    echo.
-    echo Dashboard: http://127.0.0.1:8788
-    echo Password:  1111
-    echo.
+    
+    if not "!TOKEN!"=="" (
+        echo [*] Custom Cloudflare Tunnel Token detected. Starting named tunnel...
+        docker compose --profile cloudflare up signal-api dashboard cloudflare-tunnel -d
+        if errorlevel 1 (
+            echo [!] Failed to start services
+            exit /b 1
+        )
+        timeout /t 5 /nobreak
+        echo.
+        echo [+] Services started successfully!
+        echo.
+        echo Local Dashboard:  http://127.0.0.1:8788
+        if not "!HOSTNAME!"=="" (
+            echo Public Dashboard: https://!HOSTNAME!
+        )
+        echo Password:         1111
+        echo.
+    ) else (
+        echo [*] No Custom Cloudflare Tunnel Token detected. Starting Cloudflare Quick Tunnel...
+        docker compose --profile cloudflare-quick up signal-api dashboard cloudflare-quick-tunnel -d
+        if errorlevel 1 (
+            echo [!] Failed to start services
+            exit /b 1
+        )
+        echo [*] Waiting for Cloudflare Quick Tunnel link...
+        timeout /t 8 /nobreak
+        
+        powershell -NoProfile -Command "
+            \$url = ''
+            for (\$i = 0; \$i -lt 6; \$i++) {
+                \$logs = docker compose logs cloudflare-quick-tunnel 2>&1
+                if (\$logs -match '(https://[a-zA-Z0-9-]+\.trycloudflare\.com)') {
+                    \$url = \$Matches[1]
+                    break
+                }
+                Start-Sleep -Seconds 2
+            }
+            if (\$url) {
+                Write-Host ''
+                Write-Host '============================================================' -ForegroundColor Green
+                Write-Host ' [SUCCESS] Cloudflare Quick Domain Assigned!' -ForegroundColor Green
+                Write-Host '============================================================' -ForegroundColor Green
+                Write-Host ' Public URL:  ' -NoNewline
+                Write-Host \$url -ForegroundColor Cyan
+                Write-Host ' Local URL:   http://127.0.0.1:8788'
+                Write-Host ' Password:    1111'
+                Write-Host '============================================================' -ForegroundColor Green
+                Write-Host ''
+            } else {
+                Write-Host '[!] Warning: Could not retrieve Cloudflare Quick Domain automatically.' -ForegroundColor Yellow
+                Write-Host '    Check logs manually: .\\setup.bat logs cloudflare-quick-tunnel' -ForegroundColor Yellow
+                Write-Host '    Local URL: http://127.0.0.1:8788'
+            }
+        "
+    )
     goto :eof
 )
 

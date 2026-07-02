@@ -31,7 +31,7 @@ services:
     restart: unless-stopped
     container_name: signal-dashboard
     env_file:
-      - ./api-signal/.env
+      - ./.env
     environment:
       SIGNAL_API_URL: http://signal-api:8080
       SIGNAL_GROUPS_FILE: /config/groups.json
@@ -46,7 +46,7 @@ services:
     ports:
       - "127.0.0.1:8788:8787"
     volumes:
-      - ./api-signal/groups.json:/config/groups.json:ro
+      - ./groups.json:/config/groups.json:ro
       - broadcaster-data:/data
     networks:
       - backplane
@@ -85,6 +85,25 @@ services:
       timeout: 5s
       retries: 2
       start_period: 10s
+
+  cloudflare-quick-tunnel:
+    image: cloudflare/cloudflared:2025.1.0
+    restart: unless-stopped
+    container_name: signal-quick-tunnel
+    command: tunnel --no-autoupdate --url http://signal-dashboard:8787
+    depends_on:
+      - dashboard
+    networks:
+      - dashboard-host
+    profiles:
+      - cloudflare-quick
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
+        max-file: "1"
+    mem_limit: 128m
+    cpus: "0.25"
 
   signal-linker:
     build:
