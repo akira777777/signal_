@@ -30,6 +30,7 @@ def settings(tmp_path: Path) -> Settings:
         max_sends_per_hour=20,
         max_sends_per_day=100,
         request_timeout_seconds=5,
+        send_timeout_seconds=10,
         get_max_retries=2,
     )
 

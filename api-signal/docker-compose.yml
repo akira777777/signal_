@@ -66,6 +66,7 @@ services:
       SIGNAL_STATE_FILE: /data/state.json
       SIGNAL_STATE_SECRET_FILE: /data/state.secret
       SIGNAL_LOCK_FILE: /data/sender.lock
+      SIGNAL_SEND_TIMEOUT_SECONDS: "120"
       SIGNAL_WEB_PASSWORD: ${SIGNAL_WEB_PASSWORD}
     depends_on:
       - signal-api

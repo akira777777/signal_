@@ -93,7 +93,7 @@ def test_send_uses_one_group_recipient(settings: Settings) -> None:
                 "number": "+420123456789",
                 "recipients": ["group.abc="],
             },
-            "timeout": 5,
+            "timeout": settings.send_timeout_seconds,
             "allow_redirects": False,
         }
     ]

@@ -501,7 +501,7 @@ def _signal_send_single(
             f"{base_url}/api/send",
             json=payload,
             headers={"Origin": base_url},
-            timeout=60,
+            timeout=150,
         )
         if resp.status_code == 200:
             results = resp.json().get("results", [])
