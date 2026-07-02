@@ -21,14 +21,9 @@ All systems configured, optimized, and tested. Your Signal + Telegram relay is r
 
 ### CLI Interface
 - ✅ **setup.bat** - 9 commands (link, up, scheduler, cloudflare, cf-setup, logs, ps, down, clean)
-- ✅ **setup-cloudflare.sh** - Bash version (for Linux/Mac)
-- ✅ **setup-cloudflare.bat** - Windows Cloudflare wizard
 
 ### Documentation
-- ✅ **DOCKER_SETUP.md** - Architecture & configuration guide
-- ✅ **CLOUDFLARE_SETUP.md** - Public domain setup (8KB)
 - ✅ **IMPLEMENTATION.md** - Step-by-step deployment guide (12KB)
-- ✅ **OPTIMIZATION_SUMMARY.md** - Technical improvements
 
 ### Features
 - ✅ Signal REST API integration
@@ -238,29 +233,16 @@ setup.bat logs cloudflare-tunnel
 
 ## 📚 Documentation
 
-1. **DOCKER_SETUP.md** (9KB)
-   - Architecture overview
-   - Service descriptions
-   - Commands reference
-   - Troubleshooting basics
-
-2. **CLOUDFLARE_SETUP.md** (8KB)
-   - Domain setup options
-   - Tunnel configuration
-   - Security notes
-   - Advanced options
-
-3. **IMPLEMENTATION.md** (12KB)
+1. **IMPLEMENTATION.md** (12KB)
    - Step-by-step deployment
    - Timeline & milestones
    - Detailed troubleshooting
    - Monitoring procedures
 
-4. **OPTIMIZATION_SUMMARY.md** (5KB)
-   - Issues fixed
-   - Optimizations applied
-   - Performance metrics
-   - Production checklist
+2. **README.md** (this file)
+   - Setup guidelines and status
+   - Quick Start scenario and architecture
+   - Security and verification indicators
 
 ---
 
