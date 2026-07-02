@@ -435,7 +435,7 @@ def _signal_login(session, base_url: str, password: str) -> bool:
 def _signal_get_groups(session, base_url: str) -> list[dict]:
     """Get list of available Signal groups from the Dashboard."""
     try:
-        resp = session.get(f"{base_url}/api/status", timeout=30)
+        resp = session.get(f"{base_url}/api/status", timeout=150)
         if resp.status_code != 200:
             logger.error(f"Signal: ошибка получения статуса — HTTP {resp.status_code}")
             return []
@@ -465,7 +465,7 @@ def _signal_plan_single(session, base_url: str, alias: str, message: str, attach
             f"{base_url}/api/plan",
             json=payload,
             headers={"Origin": base_url},
-            timeout=30,
+            timeout=150,
         )
         if resp.status_code == 200:
             return resp.json().get("confirm_token")
@@ -501,7 +501,7 @@ def _signal_send_single(
             f"{base_url}/api/send",
             json=payload,
             headers={"Origin": base_url},
-            timeout=60,
+            timeout=150,
         )
         if resp.status_code == 200:
             results = resp.json().get("results", [])
