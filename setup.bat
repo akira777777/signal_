@@ -1,7 +1,7 @@
 @echo off
-REM ════════════════════════════════════════════════════════════════════════════
+REM =============================================================================
 REM Signal + Telegram Relay - Docker Orchestration
-REM ════════════════════════════════════════════════════════════════════════════
+REM =============================================================================
 
 setlocal enabledelayedexpansion
 set "CMD=%~1"
@@ -9,18 +9,18 @@ set "ARG2=%~2"
 echo DEBUG: CMD is "%CMD%", arg1 is "%~1"
 if "%CMD%"=="" (
     echo.
-    echo ════════════════════════════════════════════════════════════════════════════
+    echo =============================================================================
     echo  Signal + Telegram Relay - Docker Compose Orchestrator
-    echo ════════════════════════════════════════════════════════════════════════════
+    echo =============================================================================
     echo.
     echo Commands:
     echo.
     echo   setup.bat link               Link Signal account via QR code
     echo   setup.bat up                 Start Signal API + Dashboard
-    echo   setup.bat scheduler          Start reminder scheduler (sends reminders)
-    echo   setup.bat cloudflare         Start with Cloudflare tunnel (public access)
+    echo   setup.bat scheduler          Start reminder scheduler [sends reminders]
+    echo   setup.bat cloudflare         Start with Cloudflare tunnel [public access]
     echo   setup.bat cf-setup           Configure Cloudflare domain interactively
-    echo   setup.bat logs [service]     Show logs (default: all services)
+    echo   setup.bat logs [service]     Show logs [default: all services]
     echo   setup.bat ps                 List running containers
     echo   setup.bat down               Stop all services
     echo   setup.bat clean              Remove all containers, volumes, networks
@@ -32,7 +32,7 @@ if "%CMD%"=="" (
     echo   4. setup.bat cloudflare      - Start tunnel with public access
     echo   5. setup.bat scheduler       - Start automatic reminders
     echo.
-    echo Dashboard (Local):  http://127.0.0.1:8788 (Password: 1111)
+    echo Dashboard (Local):  http://127.0.0.1:8788 [Password: 1111]
     echo.
     goto :eof
 )
@@ -141,9 +141,9 @@ if /i "%CMD%"=="scheduler" (
 
 if /i "%CMD%"=="cf-setup" (
     echo.
-    echo ════════════════════════════════════════════════════════════════════════════
+    echo =============================================================================
     echo  Cloudflare Tunnel Setup Wizard
-    echo ════════════════════════════════════════════════════════════════════════════
+    echo =============================================================================
     echo.
     echo Prerequisites:
     echo   1. Cloudflare account (free at https://dash.cloudflare.com)
@@ -251,9 +251,9 @@ if /i "%CMD%"=="cf-setup" (
                         Add-Content -Path '.env' -Value \$envContent
                         Write-Host '[+] Configuration saved to .env'
                         Write-Host ''
-                        Write-Host '════════════════════════════════════════════════════════════'
+                        Write-Host '============================================================'
                         Write-Host '[SUCCESS] Cloudflare Tunnel Configured'
-                        Write-Host '════════════════════════════════════════════════════════════'
+                        Write-Host '============================================================'
                         Write-Host ''
                         Write-Host 'Public Dashboard URL: https://' \$domain
                         Write-Host ''
