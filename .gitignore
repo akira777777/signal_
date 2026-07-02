@@ -2,3 +2,4 @@ cloudflared.exe
 scratch/
 .venv/
 *.log
+groups.json
