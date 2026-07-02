@@ -22,7 +22,6 @@ RUN chmod +x link_signal.py && \
 ENV PYTHONUNBUFFERED=1 \
     SIGNAL_API_URL=http://signal-api:8080 \
     SIGNAL_DASHBOARD_URL=http://signal-dashboard:8787 \
-    SIGNAL_DASHBOARD_PASSWORD=1111 \
     SIGNAL_LINK_OUTPUT=/output/signal-link.png \
     SIGNAL_LINK_TIMEOUT=600
 
