@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Вход — Signal Панель</title>
-  <link rel="icon" href="{{ url_for('static', path='/favicon.svg') }}?v={{ asset_version }}" type="image/svg+xml">
-  <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}?v={{ asset_version }}">
+  <link rel="icon" href="/static/favicon.svg?v={{ asset_version }}" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css?v={{ asset_version }}">
   <script>
     // Injects dark theme instantly on load if chosen
     if (localStorage.getItem("theme") === "dark" || (!localStorage.getItem("theme") && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
