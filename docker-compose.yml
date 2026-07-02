@@ -115,31 +115,33 @@ services:
       - dashboard-host
     profiles:
       - cloudflare-quick
-    command: >
-      sh -c "
-        echo '============================================================';
-        echo ' Waiting for Cloudflare Quick Tunnel URL...';
-        echo '============================================================';
-        sleep 5;
-        for i in \$\$(seq 1 30); do
-          LOG=\$\$(wget -qO- http://cloudflared:2000/ready 2>/dev/null || echo '');
-          URL=\$\$(wget -qO- http://cloudflared:2000/metrics 2>/dev/null | grep -oP 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' | head -1);
-          if [ -n \"\$$URL\" ]; then
-            echo '============================================================';
-            echo ' [OK] Cloudflare Quick Domain Ready!';
-            echo '============================================================';
-            echo '';
-            echo '  Public URL : ' \$$URL;
-            echo '  Local URL  : http://127.0.0.1:8788';
-            echo '  Password   : \$\${SIGNAL_WEB_PASSWORD:-1111}';
-            echo '';
-            echo '============================================================';
-            exit 0;
-          fi;
-          sleep 3;
-        done;
-        echo '[!] Could not detect tunnel URL. Check: docker logs signal-quick-tunnel';
-      "
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo '============================================================'
+        echo ' Waiting for Cloudflare Quick Tunnel URL...'
+        echo '============================================================'
+        sleep 6
+        i=0
+        while [ $$i -lt 30 ]; do
+          URL=$$(wget -qO- http://cloudflared:20241/metrics 2>/dev/null | grep -o 'https://[a-zA-Z0-9_-]*\.trycloudflare\.com' | head -1)
+          if [ -n "$$URL" ]; then
+            echo ''
+            echo '============================================================'
+            echo ' [OK] Cloudflare Quick Domain Ready!'
+            echo '============================================================'
+            echo ''
+            echo "  Public URL : $$URL"
+            echo '  Local URL  : http://127.0.0.1:8788'
+            echo "  Password   : $${SIGNAL_WEB_PASSWORD:-1111}"
+            echo ''
+            echo '============================================================'
+            exit 0
+          fi
+          i=$$(($$i+1))
+          sleep 3
+        done
+        echo '[!] Tunnel URL not detected. Run: docker logs signal-quick-tunnel'
     mem_limit: 32m
     cpus: "0.1"
     logging:
