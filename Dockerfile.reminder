@@ -1,28 +1,44 @@
-FROM python:3.11-slim
+ARG PYTHON_VERSION=3.11
+FROM python:${PYTHON_VERSION}-slim as builder
+
+WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY reminder_scheduler.py .
+RUN echo "requests==2.32.3" > requirements.txt && \
+    echo "telethon==1.35.3" >> requirements.txt && \
+    echo "pillow==10.2.0" >> requirements.txt && \
+    echo "cryptg==0.2.1" >> requirements.txt && \
+    pip install --no-cache-dir --target=/opt/deps -r requirements.txt
+
+FROM python:${PYTHON_VERSION}-slim
+
+RUN groupadd -r scheduler && useradd -r -g scheduler scheduler && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /opt/deps /usr/local/lib/python${PYTHON_VERSION}/site-packages/
+COPY --from=builder /build/reminder_scheduler.py .
+COPY message.txt . || true
 
-# Copy application files
-COPY reminder_scheduler.py /app/
-COPY message.txt /app/ || true
-RUN chmod +x /app/reminder_scheduler.py
+RUN chmod +x reminder_scheduler.py && \
+    chown -R scheduler:scheduler /app && \
+    mkdir -p /data && \
+    chown -R scheduler:scheduler /data
 
-# Install Python dependencies
-RUN pip install --no-cache-dir \
-    requests \
-    telethon \
-    pillow \
-    cryptg
+ENV PYTHONUNBUFFERED=1 \
+    SIGNAL_API_URL=http://signal-api:8080 \
+    SIGNAL_WEB_PASSWORD=1111 \
+    CONFIG_FILE=/config/reminder_config.json
 
-ENV CONFIG_FILE=/config/reminder_config.json
-ENV SIGNAL_DASHBOARD_URL=http://signal-api:8080
-ENV SIGNAL_WEB_PASSWORD=1111
-ENV PYTHONUNBUFFERED=1
+USER scheduler
 
-# Default: run in continuous mode
-CMD ["python", "/app/reminder_scheduler.py", "--config", "${CONFIG_FILE}"]
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=2 \
+    CMD curl -sf http://signal-api:8080/api/v1/about > /dev/null || exit 1
+
+CMD ["python", "/app/reminder_scheduler.py", "--config", "/config/reminder_config.json"]

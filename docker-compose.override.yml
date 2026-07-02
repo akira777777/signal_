@@ -1,0 +1,23 @@
+# Development overrides - automatically loaded by docker compose
+# Use this to test changes locally without modifying the main compose file
+
+services:
+  signal-api:
+    # Expose API for local testing
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  dashboard:
+    # More permissive logging during development
+    environment:
+      LOG_LEVEL: debug
+
+  # Uncomment to test signal-linker locally
+  # signal-linker:
+  #   stdin_open: true
+  #   tty: true
+
+  # Uncomment to test reminder-scheduler locally
+  # reminder-scheduler:
+  #   stdin_open: true
+  #   tty: true

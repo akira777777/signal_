@@ -1,26 +1,31 @@
-FROM python:3.11-slim
+ARG PYTHON_VERSION=3.11
+FROM python:${PYTHON_VERSION}-slim as builder
 
 WORKDIR /app
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+COPY link_signal.py .
+RUN echo "requests==2.32.3" > requirements.txt && \
+    echo "pillow==10.2.0" >> requirements.txt && \
+    pip install --no-cache-dir --target=/opt/deps -r requirements.txt
 
-# Install dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
+FROM python:${PYTHON_VERSION}-slim
 
-# Copy the linking script (reuse your existing link_signal.py)
-COPY link_signal.py /app/
-RUN chmod +x /app/link_signal.py
+RUN groupadd -r signaller && useradd -r -g signaller signaller
+WORKDIR /app
 
-# Python dependencies
-RUN pip install --no-cache-dir requests pillow
+COPY --from=builder /opt/deps /usr/local/lib/python${PYTHON_VERSION}/site-packages/
+COPY --from=builder /app/link_signal.py .
 
-# Override env vars if needed
-ENV SIGNAL_API_URL=http://signal-api:8080
-ENV SIGNAL_DASHBOARD_URL=http://dashboard:8787
-ENV SIGNAL_DASHBOARD_PASSWORD=1111
-ENV SIGNAL_LINK_OUTPUT=/output/signal-link.png
-ENV SIGNAL_LINK_TIMEOUT=600
+RUN chmod +x link_signal.py && \
+    chown -R signaller:signaller /app
 
-# Run the linker
+ENV PYTHONUNBUFFERED=1 \
+    SIGNAL_API_URL=http://signal-api:8080 \
+    SIGNAL_DASHBOARD_URL=http://signal-dashboard:8787 \
+    SIGNAL_DASHBOARD_PASSWORD=1111 \
+    SIGNAL_LINK_OUTPUT=/output/signal-link.png \
+    SIGNAL_LINK_TIMEOUT=600
+
+USER signaller
+
 CMD ["python", "/app/link_signal.py"]

@@ -1,10 +1,8 @@
-version: "3.9"
-
 services:
-  # Signal API - REST interface
   signal-api:
     image: bbernhard/signal-cli-rest-api:0.100-rootless
     restart: unless-stopped
+    container_name: signal-api
     environment:
       MODE: json-rpc
       LOG_LEVEL: warn
@@ -20,23 +18,19 @@ services:
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "2"
     networks:
       - backplane
       - signal-egress
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/about"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 60s
+    mem_limit: 512m
+    cpus: "1"
 
-  # Signal Web Dashboard
   dashboard:
     build:
       context: ./api-signal
-    entrypoint:
-      - signal-web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    container_name: signal-dashboard
     env_file:
       - ./api-signal/.env
     environment:
@@ -47,8 +41,7 @@ services:
       SIGNAL_LOCK_FILE: /data/sender.lock
       SIGNAL_WEB_PASSWORD: "${SIGNAL_WEB_PASSWORD:-1111}"
     depends_on:
-      signal-api:
-        condition: service_healthy
+      - signal-api
     ports:
       - "127.0.0.1:8787:8787"
     volumes:
@@ -57,29 +50,29 @@ services:
     networks:
       - backplane
       - dashboard-host
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    mem_limit: 256m
+    cpus: "0.5"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8787/status"]
-      interval: 10s
+      test: ["CMD-SHELL", "curl -sf http://localhost:8787/status > /dev/null || exit 1"]
+      interval: 30s
       timeout: 5s
-      retries: 5
-      start_period: 15s
+      retries: 3
+      start_period: 45s
 
-  # Cloudflare Quick Tunnel Setup
   cloudflare-tunnel:
     image: cloudflare/cloudflared:2025.1.0
     restart: unless-stopped
+    container_name: signal-tunnel
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN:-}"
-      TUNNEL_CONFIG_CONTENT: |
-        tunnel: ${CLOUDFLARE_TUNNEL_ID:-quick-tunnel}
-        ingress:
-          - hostname: "${CLOUDFLARE_TUNNEL_HOSTNAME:-signal.tunnel.dev}"
-            service: http://dashboard:8787
-          - service: http_status:404
     depends_on:
-      dashboard:
-        condition: service_healthy
+      - dashboard
     networks:
       - dashboard-host
     profiles:
@@ -87,23 +80,28 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "5m"
-        max-file: "2"
+        max-size: "2m"
+        max-file: "1"
+    mem_limit: 128m
+    cpus: "0.25"
 
-  # Signal Auto-Linker (QR code setup)
   signal-linker:
     build:
       context: .
       dockerfile: Dockerfile.signal-linker
+      args:
+        PYTHON_VERSION: "3.11"
+    restart: "no"
+    container_name: signal-linker
     environment:
       SIGNAL_API_URL: http://signal-api:8080
-      SIGNAL_DASHBOARD_URL: http://dashboard:8787
+      SIGNAL_DASHBOARD_URL: http://signal-dashboard:8787
       SIGNAL_DASHBOARD_PASSWORD: "${SIGNAL_WEB_PASSWORD:-1111}"
       SIGNAL_LINK_OUTPUT: /output/signal-link.png
       SIGNAL_LINK_TIMEOUT: "600"
+      PYTHONUNBUFFERED: "1"
     depends_on:
-      dashboard:
-        condition: service_healthy
+      - dashboard
     volumes:
       - ./api-signal/outputs:/output
     networks:
@@ -116,43 +114,53 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "2m"
+        max-size: "1m"
+    mem_limit: 128m
+    cpus: "0.5"
 
-  # Reminder Scheduler (Python async sender)
   reminder-scheduler:
     build:
       context: .
       dockerfile: Dockerfile.reminder
+      args:
+        PYTHON_VERSION: "3.11"
+    restart: unless-stopped
+    container_name: reminder-scheduler
     environment:
-      SIGNAL_DASHBOARD_URL: http://signal-api:8080
+      SIGNAL_API_URL: http://signal-api:8080
       SIGNAL_WEB_PASSWORD: "${SIGNAL_WEB_PASSWORD:-1111}"
       CONFIG_FILE: /config/reminder_config.json
+      PYTHONUNBUFFERED: "1"
     depends_on:
-      signal-api:
-        condition: service_healthy
+      - signal-api
+      - dashboard
     volumes:
       - ./reminder_config.json:/config/reminder_config.json:ro
       - ./message.txt:/config/message.txt:ro
       - ./blacklist.json:/data/blacklist.json
-      - ./reminder_scheduler.log:/data/reminder_scheduler.log
-      - signal-cli-data:/home/.local/share/signal-cli:ro
     networks:
       - backplane
     profiles:
       - scheduler
-    restart: unless-stopped
     logging:
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "5"
+        max-file: "3"
+    mem_limit: 256m
+    cpus: "0.5"
 
 networks:
   backplane:
     internal: true
-  dashboard-host: {}
-  signal-egress: {}
+    driver: bridge
+  dashboard-host:
+    driver: bridge
+  signal-egress:
+    driver: bridge
 
 volumes:
   signal-cli-data:
+    driver: local
   broadcaster-data:
+    driver: local
