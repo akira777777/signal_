@@ -209,7 +209,7 @@ async def send_telegram(cfg: dict, dry_run: bool = False) -> dict:
 
     api_id = tg_cfg["api_id"]
     api_hash = tg_cfg["api_hash"]
-    session_dir = tg_cfg.get("session_dir", ".")
+    session_dir = os.getenv("TELEGRAM_SESSION_DIR", tg_cfg.get("session_dir", "."))
     folder_name = tg_cfg.get("folder_name", "Без лимитов")
     min_delay = tg_cfg.get("min_delay_between_chats", 15)
     max_delay = tg_cfg.get("max_delay_between_chats", 30)
@@ -536,8 +536,8 @@ async def send_signal(cfg: dict, dry_run: bool = False) -> dict:
         logger.error("requests не установлен. Выполните: pip install requests")
         return {"success": 0, "fail": 0, "total": 0, "skipped": True}
 
-    base_url = sig_cfg["dashboard_url"]
-    password = sig_cfg["password"]
+    base_url = os.getenv("SIGNAL_DASHBOARD_URL", sig_cfg.get("dashboard_url", "http://127.0.0.1:8788"))
+    password = os.getenv("SIGNAL_WEB_PASSWORD", sig_cfg.get("password", "1111"))
 
     session = requests.Session()
 

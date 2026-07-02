@@ -194,6 +194,8 @@ services:
     environment:
       SIGNAL_API_URL: http://signal-api:8080
       SIGNAL_WEB_PASSWORD: "${SIGNAL_WEB_PASSWORD:-1111}"
+      SIGNAL_DASHBOARD_URL: http://dashboard:8787
+      TELEGRAM_SESSION_DIR: /sessions
       CONFIG_FILE: /config/reminder_config.json
       PYTHONUNBUFFERED: "1"
     depends_on:
@@ -203,6 +205,7 @@ services:
       - ./reminder_config.json:/config/reminder_config.json:ro
       - ./message.txt:/config/message.txt:ro
       - ./blacklist.json:/data/blacklist.json
+      - C:/Users/novra/Desktop/bot_tg:/sessions
     networks:
       - backplane
     profiles:

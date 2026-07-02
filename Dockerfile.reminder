@@ -1,30 +1,21 @@
 ARG PYTHON_VERSION=3.11
-FROM python:${PYTHON_VERSION}-slim AS builder
-
-WORKDIR /build
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY reminder_scheduler.py .
-RUN echo "requests==2.32.3" > requirements.txt && \
-    echo "telethon==1.35.3" >> requirements.txt && \
-    echo "pillow==10.2.0" >> requirements.txt && \
-    echo "cryptg==0.2.1" >> requirements.txt && \
-    pip install --no-cache-dir --target=/opt/deps -r requirements.txt
-
 FROM python:${PYTHON_VERSION}-slim
 
 RUN groupadd -r scheduler && useradd -r -g scheduler scheduler && \
     apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY --from=builder /opt/deps /usr/local/lib/python${PYTHON_VERSION}/site-packages/
-COPY --from=builder /build/reminder_scheduler.py .
-COPY message.txt . || true
+COPY reminder_scheduler.py message.txt* ./
+
+RUN pip install --no-cache-dir \
+    requests==2.32.3 \
+    telethon==1.35.0 \
+    pillow==10.2.0 \
+    "cryptg>=0.2.post0"
 
 RUN chmod +x reminder_scheduler.py && \
     chown -R scheduler:scheduler /app && \
