@@ -1,0 +1,158 @@
+version: "3.9"
+
+services:
+  # Signal API - REST interface
+  signal-api:
+    image: bbernhard/signal-cli-rest-api:0.100-rootless
+    restart: unless-stopped
+    environment:
+      MODE: json-rpc
+      LOG_LEVEL: warn
+      JSON_RPC_IGNORE_ATTACHMENTS: "true"
+      JSON_RPC_IGNORE_STORIES: "true"
+      JSON_RPC_IGNORE_AVATARS: "true"
+      JSON_RPC_IGNORE_STICKERS: "true"
+    expose:
+      - "8080"
+    volumes:
+      - signal-cli-data:/home/.local/share/signal-cli
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backplane
+      - signal-egress
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/about"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # Signal Web Dashboard
+  dashboard:
+    build:
+      context: ./api-signal
+    entrypoint:
+      - signal-web
+    env_file:
+      - ./api-signal/.env
+    environment:
+      SIGNAL_API_URL: http://signal-api:8080
+      SIGNAL_GROUPS_FILE: /config/groups.json
+      SIGNAL_STATE_FILE: /data/state.json
+      SIGNAL_STATE_SECRET_FILE: /data/state.secret
+      SIGNAL_LOCK_FILE: /data/sender.lock
+      SIGNAL_WEB_PASSWORD: "${SIGNAL_WEB_PASSWORD:-1111}"
+    depends_on:
+      signal-api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ./api-signal/groups.json:/config/groups.json:ro
+      - broadcaster-data:/data
+    networks:
+      - backplane
+      - dashboard-host
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8787/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # Cloudflare Quick Tunnel Setup
+  cloudflare-tunnel:
+    image: cloudflare/cloudflared:2025.1.0
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN:-}"
+      TUNNEL_CONFIG_CONTENT: |
+        tunnel: ${CLOUDFLARE_TUNNEL_ID:-quick-tunnel}
+        ingress:
+          - hostname: "${CLOUDFLARE_TUNNEL_HOSTNAME:-signal.tunnel.dev}"
+            service: http://dashboard:8787
+          - service: http_status:404
+    depends_on:
+      dashboard:
+        condition: service_healthy
+    networks:
+      - dashboard-host
+    profiles:
+      - cloudflare
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # Signal Auto-Linker (QR code setup)
+  signal-linker:
+    build:
+      context: .
+      dockerfile: Dockerfile.signal-linker
+    environment:
+      SIGNAL_API_URL: http://signal-api:8080
+      SIGNAL_DASHBOARD_URL: http://dashboard:8787
+      SIGNAL_DASHBOARD_PASSWORD: "${SIGNAL_WEB_PASSWORD:-1111}"
+      SIGNAL_LINK_OUTPUT: /output/signal-link.png
+      SIGNAL_LINK_TIMEOUT: "600"
+    depends_on:
+      dashboard:
+        condition: service_healthy
+    volumes:
+      - ./api-signal/outputs:/output
+    networks:
+      - backplane
+      - dashboard-host
+    profiles:
+      - link
+    stdin_open: true
+    tty: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
+
+  # Reminder Scheduler (Python async sender)
+  reminder-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.reminder
+    environment:
+      SIGNAL_DASHBOARD_URL: http://signal-api:8080
+      SIGNAL_WEB_PASSWORD: "${SIGNAL_WEB_PASSWORD:-1111}"
+      CONFIG_FILE: /config/reminder_config.json
+    depends_on:
+      signal-api:
+        condition: service_healthy
+    volumes:
+      - ./reminder_config.json:/config/reminder_config.json:ro
+      - ./message.txt:/config/message.txt:ro
+      - ./blacklist.json:/data/blacklist.json
+      - ./reminder_scheduler.log:/data/reminder_scheduler.log
+      - signal-cli-data:/home/.local/share/signal-cli:ro
+    networks:
+      - backplane
+    profiles:
+      - scheduler
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  backplane:
+    internal: true
+  dashboard-host: {}
+  signal-egress: {}
+
+volumes:
+  signal-cli-data:
+  broadcaster-data:

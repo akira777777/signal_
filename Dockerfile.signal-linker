@@ -1,0 +1,26 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the linking script (reuse your existing link_signal.py)
+COPY link_signal.py /app/
+RUN chmod +x /app/link_signal.py
+
+# Python dependencies
+RUN pip install --no-cache-dir requests pillow
+
+# Override env vars if needed
+ENV SIGNAL_API_URL=http://signal-api:8080
+ENV SIGNAL_DASHBOARD_URL=http://dashboard:8787
+ENV SIGNAL_DASHBOARD_PASSWORD=1111
+ENV SIGNAL_LINK_OUTPUT=/output/signal-link.png
+ENV SIGNAL_LINK_TIMEOUT=600
+
+# Run the linker
+CMD ["python", "/app/link_signal.py"]

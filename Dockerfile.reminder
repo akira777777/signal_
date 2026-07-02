@@ -1,0 +1,28 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy application files
+COPY reminder_scheduler.py /app/
+COPY message.txt /app/ || true
+RUN chmod +x /app/reminder_scheduler.py
+
+# Install Python dependencies
+RUN pip install --no-cache-dir \
+    requests \
+    telethon \
+    pillow \
+    cryptg
+
+ENV CONFIG_FILE=/config/reminder_config.json
+ENV SIGNAL_DASHBOARD_URL=http://signal-api:8080
+ENV SIGNAL_WEB_PASSWORD=1111
+ENV PYTHONUNBUFFERED=1
+
+# Default: run in continuous mode
+CMD ["python", "/app/reminder_scheduler.py", "--config", "${CONFIG_FILE}"]
