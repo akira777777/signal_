@@ -107,6 +107,7 @@ class Settings:
     max_sends_per_hour: int
     max_sends_per_day: int
     request_timeout_seconds: float
+    send_timeout_seconds: float
     get_max_retries: int
 
     @classmethod
@@ -177,6 +178,9 @@ class Settings:
             ),
             request_timeout_seconds=_env_float(
                 "SIGNAL_REQUEST_TIMEOUT_SECONDS", 30.0, minimum=0.1
+            ),
+            send_timeout_seconds=_env_float(
+                "SIGNAL_SEND_TIMEOUT_SECONDS", 120.0, minimum=0.1
             ),
             get_max_retries=_env_int(
                 "SIGNAL_GET_MAX_RETRIES", 2, minimum=0, maximum=5

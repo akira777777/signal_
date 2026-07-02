@@ -152,7 +152,7 @@ class SignalApiClient:
             response = self._session.post(
                 self._url("/v2/send"),
                 json=payload,
-                timeout=self._settings.request_timeout_seconds,
+                timeout=self._settings.send_timeout_seconds,
                 allow_redirects=False,
             )
         except (requests.ConnectionError, requests.Timeout) as exc:
