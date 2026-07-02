@@ -65,7 +65,7 @@ services:
     container_name: signal-tunnel
     command: tunnel --no-autoupdate run
     environment:
-      TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN:-}"
+      TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN}"
     depends_on:
       - dashboard
     networks:
@@ -79,6 +79,12 @@ services:
         max-file: "1"
     mem_limit: 128m
     cpus: "0.25"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "https://www.cloudflare.com"]
+      interval: 30s
+      timeout: 5s
+      retries: 2
+      start_period: 10s
 
   signal-linker:
     build:

@@ -2,17 +2,6 @@
 REM ════════════════════════════════════════════════════════════════════════════
 REM Signal + Telegram Relay - Docker Orchestration
 REM ════════════════════════════════════════════════════════════════════════════
-REM
-REM Usage:
-REM   setup.bat link           - Start QR linking (link Signal account to device)
-REM   setup.bat up             - Start Signal API + Dashboard
-REM   setup.bat scheduler      - Start reminder scheduler (sends messages)
-REM   setup.bat cloudflare     - Start with Cloudflare tunnel (public access)
-REM   setup.bat logs [service] - View logs (default: all)
-REM   setup.bat ps             - Show running containers
-REM   setup.bat down           - Stop all services
-REM   setup.bat clean          - Remove containers, networks, volumes
-REM
 
 setlocal enabledelayedexpansion
 set "CMD=%~1"
@@ -21,16 +10,17 @@ set "ARG2=%~2"
 if "%CMD%"=="" (
     echo.
     echo ════════════════════════════════════════════════════════════════════════════
-    echo  Signal ^+ Telegram Relay - Docker Compose Orchestrator
+    echo  Signal + Telegram Relay - Docker Compose Orchestrator
     echo ════════════════════════════════════════════════════════════════════════════
     echo.
     echo Commands:
     echo.
     echo   setup.bat link               Link Signal account via QR code
     echo   setup.bat up                 Start Signal API + Dashboard
-    echo   setup.bat scheduler          Start reminder scheduler ^(sends reminders^)
-    echo   setup.bat cloudflare         Start with Cloudflare tunnel ^(public access^)
-    echo   setup.bat logs [service]     Show logs ^(default: all services^)
+    echo   setup.bat scheduler          Start reminder scheduler (sends reminders)
+    echo   setup.bat cloudflare         Start with Cloudflare tunnel (public access)
+    echo   setup.bat cf-setup           Configure Cloudflare domain interactively
+    echo   setup.bat logs [service]     Show logs (default: all services)
     echo   setup.bat ps                 List running containers
     echo   setup.bat down               Stop all services
     echo   setup.bat clean              Remove all containers, volumes, networks
@@ -38,10 +28,11 @@ if "%CMD%"=="" (
     echo Quick Start Workflow:
     echo   1. setup.bat up              - Start the core services
     echo   2. setup.bat link            - Link your Signal account
-    echo   3. setup.bat scheduler       - Start automatic reminders
+    echo   3. setup.bat cf-setup        - Configure public Cloudflare domain
+    echo   4. setup.bat cloudflare      - Start tunnel with public access
+    echo   5. setup.bat scheduler       - Start automatic reminders
     echo.
-    echo Dashboard:
-    echo   http://127.0.0.1:8787        ^(Password: 1111^)
+    echo Dashboard (Local):  http://127.0.0.1:8788 (Password: 1111)
     echo.
     goto :eof
 )
@@ -73,12 +64,12 @@ if /i "%CMD%"=="up" (
         echo [!] Failed to start services
         exit /b 1
     )
-    timeout /t 5
+    timeout /t 5 /nobreak
     echo.
     echo [+] Services started!
     echo.
-    echo Dashboard available at: http://127.0.0.1:8787
-    echo Password: 1111
+    echo Dashboard: http://127.0.0.1:8788
+    echo Password:  1111
     echo.
     goto :eof
 )
@@ -93,28 +84,189 @@ if /i "%CMD%"=="scheduler" (
     goto :eof
 )
 
+if /i "%CMD%"=="cf-setup" (
+    echo.
+    echo ════════════════════════════════════════════════════════════════════════════
+    echo  Cloudflare Tunnel Setup Wizard
+    echo ════════════════════════════════════════════════════════════════════════════
+    echo.
+    echo Prerequisites:
+    echo   1. Cloudflare account (free at https://dash.cloudflare.com)
+    echo   2. Domain name (can be free .tk domain)
+    echo   3. Domain added to Cloudflare
+    echo.
+    pause
+    echo.
+    echo [*] Step 1: Create Cloudflare API Token
+    echo.
+    echo   1. Visit: https://dash.cloudflare.com/profile/api-tokens
+    echo   2. Click "Create Token"
+    echo   3. Use "Edit zone DNS" template, or:
+    echo      - Permissions: Zone:DNS:Edit, Zone:Zone:Read, Account:Tunnels:Edit
+    echo      - Zone Resources: Your domain
+    echo   4. Create and copy token
+    echo.
+    set /p API_TOKEN="[?] Paste API Token: "
+    if "!API_TOKEN!"=="" (
+        echo [!] Token required. Exiting.
+        exit /b 1
+    )
+    
+    echo.
+    echo [*] Step 2: Get Zone ID
+    echo.
+    echo   1. Visit: https://dash.cloudflare.com
+    echo   2. Select your domain
+    echo   3. Copy Zone ID (right sidebar, API section)
+    echo.
+    set /p ZONE_ID="[?] Paste Zone ID: "
+    if "!ZONE_ID!"=="" (
+        echo [!] Zone ID required. Exiting.
+        exit /b 1
+    )
+    
+    echo.
+    set /p DOMAIN="[?] Enter full domain for Signal Dashboard (e.g., signal.example.com): "
+    if "!DOMAIN!"=="" (
+        echo [!] Domain required. Exiting.
+        exit /b 1
+    )
+    
+    echo.
+    echo [*] Creating Cloudflare Tunnel...
+    
+    powershell -NoProfile -Command "
+        \$api_token = '$API_TOKEN'
+        \$zone_id = '$ZONE_ID'
+        \$domain = '$DOMAIN'
+        
+        \$headers = @{
+            'Authorization' = 'Bearer ' + \$api_token
+            'Content-Type'  = 'application/json'
+        }
+        
+        try {
+            # Create tunnel
+            \$createResp = Invoke-RestMethod `
+                -Uri 'https://api.cloudflare.com/client/v4/accounts/undefined/cfd_tunnel' `
+                -Method POST `
+                -Headers \$headers `
+                -Body (ConvertTo-Json @{'name' = 'signal-relay'}) `
+                -ErrorAction Stop
+            
+            if (\$createResp.success) {
+                \$tunnelId = \$createResp.result.id
+                Write-Host '[+] Tunnel created: ' \$tunnelId
+                
+                # Get tunnel token
+                \$tokenResp = Invoke-RestMethod `
+                    -Uri (\"https://api.cloudflare.com/client/v4/accounts/undefined/cfd_tunnel/\" + \$tunnelId + \"/token\") `
+                    -Method GET `
+                    -Headers \$headers `
+                    -ErrorAction Stop
+                
+                if (\$tokenResp.success) {
+                    \$tunnelToken = \$tokenResp.result
+                    Write-Host '[+] Tunnel token generated'
+                    
+                    # Create DNS CNAME record
+                    \$subdomain = \$domain.Split('.')[0]
+                    \$dnsBody = @{
+                        'type'    = 'CNAME'
+                        'name'    = \$subdomain
+                        'content' = \$tunnelId + '.cfargotunnel.com'
+                        'ttl'     = 1
+                        'proxied' = \$true
+                    }
+                    
+                    \$dnsResp = Invoke-RestMethod `
+                        -Uri ('https://api.cloudflare.com/client/v4/zones/' + \$zone_id + '/dns_records') `
+                        -Method POST `
+                        -Headers \$headers `
+                        -Body (ConvertTo-Json \$dnsBody) `
+                        -ErrorAction Stop
+                    
+                    if (\$dnsResp.success) {
+                        Write-Host '[+] DNS CNAME record created'
+                        
+                        # Update .env file
+                        \$envContent = @\"
+`n# Cloudflare Tunnel Configuration`nCLOUDFLARE_TUNNEL_TOKEN=\$tunnelToken`nCLOUDFLARE_TUNNEL_ID=\$tunnelId`nCLOUDFLARE_TUNNEL_HOSTNAME=\$domain`n\"@
+                        
+                        Add-Content -Path '.env' -Value \$envContent
+                        Write-Host '[+] Configuration saved to .env'
+                        Write-Host ''
+                        Write-Host '════════════════════════════════════════════════════════════'
+                        Write-Host '[SUCCESS] Cloudflare Tunnel Configured'
+                        Write-Host '════════════════════════════════════════════════════════════'
+                        Write-Host ''
+                        Write-Host 'Public Dashboard URL: https://' \$domain
+                        Write-Host ''
+                        Write-Host 'Next steps:'
+                        Write-Host '  1. Wait 2-3 minutes for DNS to propagate'
+                        Write-Host '  2. Run: setup.bat cloudflare'
+                        Write-Host '  3. Visit: https://' \$domain
+                        Write-Host ''
+                    }
+                    else {
+                        Write-Host '[!] DNS record creation failed'
+                        Write-Host \$dnsResp.errors
+                        exit 1
+                    }
+                }
+                else {
+                    Write-Host '[!] Token generation failed'
+                    Write-Host \$tokenResp.errors
+                    exit 1
+                }
+            }
+            else {
+                Write-Host '[!] Tunnel creation failed'
+                Write-Host \$createResp.errors
+                exit 1
+            }
+        }
+        catch {
+            Write-Host '[!] Error: ' \$_
+            exit 1
+        }
+    "
+    if errorlevel 1 (
+        echo [!] Cloudflare setup failed. Check your API token and zone ID.
+        exit /b 1
+    )
+    goto :eof
+)
+
 if /i "%CMD%"=="cloudflare" (
+    REM Check for token in environment or .env
+    if not defined CLOUDFLARE_TUNNEL_TOKEN (
+        for /f "tokens=2 delims==" %%A in ('findstr /I "CLOUDFLARE_TUNNEL_TOKEN" .env 2^>nul') do (
+            set "CLOUDFLARE_TUNNEL_TOKEN=%%A"
+        )
+    )
+    
     if not defined CLOUDFLARE_TUNNEL_TOKEN (
         echo.
-        echo [!] ERROR: CLOUDFLARE_TUNNEL_TOKEN not set in .env
+        echo [!] Cloudflare tunnel not configured
         echo.
-        echo To enable Cloudflare tunnel:
-        echo   1. Visit: https://dash.cloudflare.com/?to=/:account/networking/networks
-        echo   2. Create a tunnel and copy the token
-        echo   3. Add to .env: CLOUDFLARE_TUNNEL_TOKEN=your_token_here
-        echo   4. Run: setup.bat cloudflare
+        echo Run: setup.bat cf-setup
         echo.
         exit /b 1
     )
+    
     echo.
-    echo [*] Starting with Cloudflare Tunnel...
+    echo [*] Starting Cloudflare tunnel...
     docker compose up --profile cloudflare -d
     if errorlevel 1 (
         echo [!] Failed to start tunnel
         exit /b 1
     )
-    timeout /t 3
-    echo [+] Tunnel started. Public URL available via: docker compose logs cloudflare-tunnel
+    timeout /t 3 /nobreak
+    echo.
+    echo [+] Tunnel started!
+    echo.
+    echo View logs: setup.bat logs cloudflare-tunnel
     echo.
     goto :eof
 )
