@@ -19,7 +19,7 @@
   "signal": {
     "enabled": true,
     "dashboard_url": "http://127.0.0.1:8787",
-    "password": "1111",
+    "password": "<ВВЕДИТЕ_ТОТ_ЖЕ_ПАРОЛЬ_ЗДЕСЬ>",
     "number": "+420737500587",
     "min_delay_between_groups": 2,
     "max_delay_between_groups": 5
