@@ -28,7 +28,6 @@ services:
   dashboard:
     build:
       context: ./api-signal
-      dockerfile: Dockerfile
     restart: unless-stopped
     container_name: signal-dashboard
     env_file:
@@ -40,10 +39,12 @@ services:
       SIGNAL_STATE_SECRET_FILE: /data/state.secret
       SIGNAL_LOCK_FILE: /data/sender.lock
       SIGNAL_WEB_PASSWORD: "${SIGNAL_WEB_PASSWORD:-1111}"
+    entrypoint:
+      - signal-web
     depends_on:
       - signal-api
     ports:
-      - "127.0.0.1:8787:8787"
+      - "127.0.0.1:8788:8787"
     volumes:
       - ./api-signal/groups.json:/config/groups.json:ro
       - broadcaster-data:/data
@@ -57,12 +58,6 @@ services:
         max-file: "2"
     mem_limit: 256m
     cpus: "0.5"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8787/status > /dev/null || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 45s
 
   cloudflare-tunnel:
     image: cloudflare/cloudflared:2025.1.0
@@ -95,7 +90,7 @@ services:
     container_name: signal-linker
     environment:
       SIGNAL_API_URL: http://signal-api:8080
-      SIGNAL_DASHBOARD_URL: http://signal-dashboard:8787
+      SIGNAL_DASHBOARD_URL: http://signal-dashboard:8788
       SIGNAL_DASHBOARD_PASSWORD: "${SIGNAL_WEB_PASSWORD:-1111}"
       SIGNAL_LINK_OUTPUT: /output/signal-link.png
       SIGNAL_LINK_TIMEOUT: "600"
