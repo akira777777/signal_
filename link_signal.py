@@ -16,6 +16,7 @@ QR-коды привязки короткоживущие (около минут
 """
 
 import base64
+import os
 import sys
 import time
 import webbrowser
@@ -30,9 +31,9 @@ if sys.platform == "win32":
         pass
 
 # ── Конфигурация ──────────────────────────────────────────────────────────
-BASE_URL = "http://127.0.0.1:8787"
-PASSWORD = "1111"
-QR_FILE = Path(__file__).resolve().parent / "api-signal" / "outputs" / "signal-link.png"
+BASE_URL = os.getenv("SIGNAL_DASHBOARD_URL", "http://127.0.0.1:8788")
+PASSWORD = os.getenv("SIGNAL_DASHBOARD_PASSWORD", "1111")
+QR_FILE = Path(os.getenv("SIGNAL_LINK_OUTPUT", str(Path(__file__).resolve().parent / "api-signal" / "outputs" / "signal-link.png")))
 
 # Срок жизни QR ~ 60 сек; перевыпускаем чуть раньше.
 QR_REFRESH_SECONDS = 50
@@ -61,8 +62,8 @@ def main() -> int:
     try:
         r = s.post(f"{BASE_URL}/api/login", json={"password": PASSWORD}, timeout=10)
     except requests.ConnectionError:
-        print("ОШИБКА: Dashboard не запущен на http://127.0.0.1:8787")
-        print("        Запустите: docker compose -f api-signal/docker-compose.yml up -d signal-api dashboard")
+        print(f"ОШИБКА: Dashboard не запущен на {BASE_URL}")
+        print("        Запустите: setup.bat up")
         return 1
     if r.status_code != 200:
         print(f"ОШИБКА: логин не удался (HTTP {r.status_code}): {r.text}")
