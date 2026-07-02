@@ -100,28 +100,29 @@ if /i "%CMD%"=="up" (
         
         powershell -NoProfile -Command "
             \$url = ''
-            for (\$i = 0; \$i -lt 6; \$i++) {
-                \$logs = docker compose logs cloudflare-quick-tunnel 2>&1
+            for (\$i = 0; \$i -lt 12; \$i++) {
+                \$logs = docker logs signal-quick-tunnel 2>&1
                 if (\$logs -match '(https://[a-zA-Z0-9-]+\.trycloudflare\.com)') {
                     \$url = \$Matches[1]
                     break
                 }
-                Start-Sleep -Seconds 2
+                Start-Sleep -Seconds 3
             }
             if (\$url) {
                 Write-Host ''
                 Write-Host '============================================================' -ForegroundColor Green
                 Write-Host ' [SUCCESS] Cloudflare Quick Domain Assigned!' -ForegroundColor Green
                 Write-Host '============================================================' -ForegroundColor Green
-                Write-Host ' Public URL:  ' -NoNewline
-                Write-Host \$url -ForegroundColor Cyan
-                Write-Host ' Local URL:   http://127.0.0.1:8788'
-                Write-Host ' Password:    1111'
+                Write-Host '  Public URL : ' -NoNewline; Write-Host \$url -ForegroundColor Cyan
+                Write-Host '  Local URL  : http://127.0.0.1:8788'
+                Write-Host '  Password   : ' -NoNewline; Write-Host (if ([System.Environment]::GetEnvironmentVariable('SIGNAL_WEB_PASSWORD')) { \$env:SIGNAL_WEB_PASSWORD } else { '1111' }) -ForegroundColor Yellow
                 Write-Host '============================================================' -ForegroundColor Green
+                Write-Host ''
+                Write-Host 'Tip: share the Public URL with anyone who needs access.' -ForegroundColor DarkGray
                 Write-Host ''
             } else {
                 Write-Host '[!] Warning: Could not retrieve Cloudflare Quick Domain automatically.' -ForegroundColor Yellow
-                Write-Host '    Check logs manually: .\\setup.bat logs cloudflare-quick-tunnel' -ForegroundColor Yellow
+                Write-Host '    Check logs manually: docker logs signal-quick-tunnel' -ForegroundColor Yellow
                 Write-Host '    Local URL: http://127.0.0.1:8788'
             }
         "

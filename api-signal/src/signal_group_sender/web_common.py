@@ -81,13 +81,14 @@ def _host_from_url_or_host(value: str) -> str:
 
 
 def trusted_hosts_from_env(env_name: str) -> list[str]:
-    hosts = ["127.0.0.1", "localhost", "testserver", "*.vercel.app"]
+    hosts = ["127.0.0.1", "localhost", "testserver", "*.vercel.app", "*.trycloudflare.com"]
     for value in _csv_values(os.getenv(env_name, "")):
         hosts.append(_host_from_url_or_host(value))
     for env_value in (
         os.getenv("VERCEL_URL", ""),
         os.getenv("VERCEL_BRANCH_URL", ""),
         os.getenv("VERCEL_PROJECT_PRODUCTION_URL", ""),
+        os.getenv("SIGNAL_PUBLIC_URL", ""),
     ):
         if env_value:
             hosts.append(_host_from_url_or_host(env_value))
@@ -101,9 +102,11 @@ def allowed_origins_from_env(env_name: str, defaults: set[str]) -> set[str]:
         os.getenv("VERCEL_URL", ""),
         os.getenv("VERCEL_BRANCH_URL", ""),
         os.getenv("VERCEL_PROJECT_PRODUCTION_URL", ""),
+        os.getenv("SIGNAL_PUBLIC_URL", ""),
     ):
         if env_value:
-            origins.add(f"https://{_host_from_url_or_host(env_value)}")
+            url = env_value if "://" in env_value else f"https://{env_value}"
+            origins.add(url.rstrip("/"))
     return origins
 
 
@@ -121,11 +124,24 @@ def _request_origins(request: Request) -> set[str]:
     return origins
 
 
+def _origin_allowed(origin: str | None, allowed_origins: set[str]) -> bool:
+    if origin is None:
+        return False
+    if origin in allowed_origins:
+        return True
+    # Allow any Cloudflare Quick Tunnel domain (*.trycloudflare.com)
+    from urllib.parse import urlparse as _urlparse
+    parsed = _urlparse(origin)
+    if parsed.scheme == "https" and (parsed.hostname or "").endswith(".trycloudflare.com"):
+        return True
+    return False
+
+
 def require_json_same_origin(request: Request, *, allowed_origins: set[str]) -> None:
     if request.method in {"GET", "HEAD", "OPTIONS"}:
         return
     origin = request.headers.get("origin")
-    if origin not in allowed_origins and origin not in _request_origins(request):
+    if not _origin_allowed(origin, allowed_origins) and origin not in _request_origins(request):
         raise HTTPException(status_code=403, detail="Invalid request origin")
     if request.headers.get("content-type", "").split(";", 1)[0] != "application/json":
         raise HTTPException(status_code=415, detail="JSON request required")

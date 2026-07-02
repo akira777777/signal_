@@ -387,20 +387,24 @@ def create_app(
 
     @app.post("/api/login")
     def login(
+        request: Request,
         payload: LoginRequest,
         context: ContextDependency,
         _: OriginDependency,
     ) -> JSONResponse:
         if not hmac.compare_digest(payload.password, context.web_password):
             raise HTTPException(status_code=401, detail="Неверный пароль")
+        # Determine if the request arrived over HTTPS (via Cloudflare or other proxy)
+        forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+        is_https = forwarded_proto == "https" or request.url.scheme == "https"
         response = JSONResponse({"authenticated": True})
         response.set_cookie(
             "signal_session",
             context.issue_session(),
             max_age=8 * 3600,
             httponly=True,
-            secure=False,
-            samesite="strict",
+            secure=is_https,
+            samesite="lax",
             path="/",
         )
         return response
@@ -618,6 +622,7 @@ def main() -> None:
         host="0.0.0.0",
         port=8787,
         workers=1,
-        proxy_headers=False,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
         server_header=False,
     )
